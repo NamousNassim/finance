@@ -1,0 +1,10 @@
+Options -Indexes
+PassengerEnabled on
+# Root of the Django project (contains passenger_wsgi.py)
+PassengerAppRoot /home/mccgcom/systemeFacturation
+# WSGI entry file
+PassengerStartupFile passenger_wsgi.py
+# Virtualenv interpreter path from cPanel Python App details
+PassengerPython /home/mccgcom/virtualenv/systemeFacturation/3.12/bin/python3.12
+# Log file location (optional)
+PassengerLogFile /home/mccgcom/logs/passenger.log
