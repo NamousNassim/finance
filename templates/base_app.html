@@ -68,11 +68,8 @@
             {% if messages %}
             <div class="mb-5 space-y-2" id="flash-container">
                 {% for message in messages %}
-                <div class="flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm
-                    {% if 'success' in message.tags %}bg-emerald-50 border-emerald-200 text-emerald-800
-                    {% elif 'error' in message.tags %}bg-rose-50 border-rose-200 text-rose-800
-                    {% elif 'warning' in message.tags %}bg-amber-50 border-amber-200 text-amber-800
-                    {% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %}">
+                <div class="flash-msg flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm
+                    {% if 'success' in message.tags %}bg-emerald-50 border-emerald-200 text-emerald-800 flash-success{% elif 'error' in message.tags %}bg-rose-50 border-rose-200 text-rose-800{% elif 'warning' in message.tags %}bg-amber-50 border-amber-200 text-amber-800{% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %}">
                     <span class="flex-1 font-medium">{{ message }}</span>
                     <button type="button"
                             onclick="this.parentElement.remove()"
@@ -93,6 +90,30 @@
     </div>
 </div>
 
+<!-- Modal succès -->
+<div id="success-modal" class="fixed inset-0 z-[999] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+    <div class="w-[360px] max-w-[90vw] rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+        <div class="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white">
+            <div class="h-10 w-10 rounded-full bg-white/15 border border-white/30 flex items-center justify-center">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6">
+                    <path d="M20 6 9 17l-5-5"/>
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-[0.22em] text-emerald-100 font-semibold">Succès</p>
+                <p class="text-sm font-semibold">Action réalisée</p>
+            </div>
+        </div>
+        <div class="px-5 py-4 space-y-2">
+            <p id="success-modal-text" class="text-slate-800 text-sm"></p>
+            <p class="text-slate-500 text-xs">Vous pouvez fermer cette fenêtre et continuer.</p>
+        </div>
+        <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+            <button id="success-modal-close" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition">OK</button>
+        </div>
+    </div>
+</div>
+
 <script>
 function openSidebar() {
     document.getElementById('sidebar').classList.remove('-translate-x-full');
@@ -104,6 +125,29 @@ function closeSidebar() {
     document.getElementById('sidebar-overlay').classList.add('hidden');
     document.body.style.overflow = '';
 }
+
+// Fenêtre de succès façon "Windows"
+(function () {
+    const successCard = document.querySelector('.flash-success');
+    if (!successCard) return;
+    const modal = document.getElementById('success-modal');
+    const textTarget = document.getElementById('success-modal-text');
+    const btnClose = document.getElementById('success-modal-close');
+    if (!modal || !textTarget || !btnClose) return;
+    textTarget.textContent = successCard.textContent.trim();
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    btnClose.addEventListener('click', () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    });
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    });
+})();
 </script>
 {% block extra_js %}{% endblock %}
 </body>

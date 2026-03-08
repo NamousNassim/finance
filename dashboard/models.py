@@ -1,7 +1,10 @@
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import date
+
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 
 # ── CLIENT ──────────────────────────────────────────────────────────────────
@@ -105,6 +108,17 @@ class FactureStatut(models.TextChoices):
     ANNULEE   = 'ANNULEE',   'Annulée'
 
 
+class FactureType(models.TextChoices):
+    PONCTUELLE = 'PONCTUELLE', 'Facture ponctuelle'
+    RECURRENTE = 'RECURRENTE', 'Facture récurrente (modèle)'
+
+
+class RecurrenceFrequence(models.TextChoices):
+    MENSUELLE     = 'MENSUELLE',     'Mensuelle'
+    TRIMESTRIELLE = 'TRIMESTRIELLE', 'Trimestrielle'
+    ANNUELLE      = 'ANNUELLE',      'Annuelle'
+
+
 class Facture(models.Model):
     numero         = models.CharField(max_length=20, unique=True, blank=True, verbose_name='Numéro')
     client         = models.ForeignKey(
@@ -123,6 +137,24 @@ class Facture(models.Model):
     date_emission  = models.DateField(default=timezone.now, verbose_name="Date d'émission")
     date_echeance  = models.DateField(null=True, blank=True, verbose_name="Date d'échéance")
     notes          = models.TextField(blank=True, verbose_name='Notes')
+
+    # Récurrence
+    type_facture = models.CharField(
+        max_length=20, choices=FactureType.choices, default=FactureType.PONCTUELLE,
+        verbose_name='Type de facture'
+    )
+    recurrence_frequence = models.CharField(
+        max_length=20, choices=RecurrenceFrequence.choices,
+        null=True, blank=True, verbose_name='Fréquence de récurrence'
+    )
+    recurrence_debut     = models.DateField(null=True, blank=True, verbose_name='Date de début de récurrence')
+    recurrence_fin       = models.DateField(null=True, blank=True, verbose_name='Date de fin de récurrence')
+    recurrence_prochaine = models.DateField(null=True, blank=True, verbose_name='Prochaine génération')
+    recurrence_active    = models.BooleanField(default=True, verbose_name='Récurrence active')
+    source_recurring     = models.ForeignKey(
+        'self', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='factures_generees', verbose_name='Facture source récurrente'
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='factures_creees',
@@ -134,6 +166,27 @@ class Facture(models.Model):
         ordering = ['-date_emission', '-created_at']
         verbose_name = 'Facture'
         verbose_name_plural = 'Factures'
+
+    def clean(self):
+        errors = {}
+        is_recurring = self.type_facture == FactureType.RECURRENTE
+
+        if is_recurring:
+            if not self.recurrence_frequence:
+                errors['recurrence_frequence'] = "La fréquence est requise pour une facture récurrente."
+            if not self.recurrence_debut:
+                errors['recurrence_debut'] = "La date de début est requise pour une facture récurrente."
+            if self.recurrence_fin and self.recurrence_debut and self.recurrence_fin < self.recurrence_debut:
+                errors['recurrence_fin'] = "La date de fin doit être postérieure ou égale à la date de début."
+            if self.source_recurring:
+                errors['source_recurring'] = "Un modèle récurrent ne peut pas référencer une facture source."
+        else:
+            # Facture ponctuelle : les champs de récurrence doivent rester vides
+            if self.recurrence_frequence or self.recurrence_debut or self.recurrence_fin:
+                errors['type_facture'] = "Les champs de récurrence ne sont autorisés que pour une facture récurrente."
+
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         if not self.numero:
@@ -149,6 +202,23 @@ class Facture(models.Model):
             else:
                 seq = 1
             self.numero = f"FAC-{year}-{seq:04d}"
+
+        # Initialiser la prochaine génération pour les modèles récurrents
+        if self.type_facture == FactureType.RECURRENTE:
+            if self.recurrence_debut and self.recurrence_frequence:
+                # (Re)calcule systématiquement la prochaine génération à partir du début + fréquence
+                from .services import calculate_next_generation_date
+                self.recurrence_prochaine = calculate_next_generation_date(
+                    self.recurrence_debut, self.recurrence_frequence
+                )
+        else:
+            # Facture ponctuelle : pas de récurrence propre
+            self.recurrence_active = False
+            self.recurrence_frequence = None
+            self.recurrence_debut = None
+            self.recurrence_fin = None
+            self.recurrence_prochaine = None
+
         super().save(*args, **kwargs)
 
     def _quantize(self, value: Decimal) -> Decimal:
@@ -166,6 +236,27 @@ class Facture(models.Model):
         if save:
             super().save(update_fields=['subtotal_ht', 'montant_ht', 'tva_amount', 'total_ttc', 'updated_at'])
         return self.subtotal_ht, self.tva_amount, self.total_ttc
+
+    # ——— Récurrence utilitaires ———
+    def is_recurring_template(self) -> bool:
+        return self.type_facture == FactureType.RECURRENTE
+
+    def recurrence_interval_months(self) -> int:
+        if self.recurrence_frequence == RecurrenceFrequence.MENSUELLE:
+            return 1
+        if self.recurrence_frequence == RecurrenceFrequence.TRIMESTRIELLE:
+            return 3
+        if self.recurrence_frequence == RecurrenceFrequence.ANNUELLE:
+            return 12
+        return 0
+
+    def next_recurrence_date(self) -> date | None:
+        return self.recurrence_prochaine
+
+    def recurrence_offset_days(self) -> int:
+        if self.date_emission and self.date_echeance:
+            return (self.date_echeance - self.date_emission).days
+        return 0
 
     def __str__(self):
         return f"{self.numero} — {self.client}"

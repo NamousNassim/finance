@@ -279,6 +279,9 @@ def facture_create(request):
             formset.save()
             messages.success(request, f'Facture {facture.numero} créée avec succès.')
             return redirect('dashboard:facture_list')
+        else:
+            # Debug minimal : log les erreurs côté serveur
+            print("FACTURE CREATE INVALID FORM =>", form.errors.as_json(), formset.errors)
     return render(request, 'dashboard/factures/form.html', {
         'form': form, 'lignes_formset': formset,
         'action': 'Nouvelle facture', 'submit_label': 'Créer la facture',

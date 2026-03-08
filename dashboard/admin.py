@@ -34,9 +34,32 @@ class LigneFactureInline(admin.TabularInline):
 @admin.register(Facture)
 class FactureAdmin(admin.ModelAdmin):
     list_display    = ['numero', 'client', 'objet', 'subtotal_ht', 'tva_amount', 'total_ttc',
-                       'statut', 'date_emission', 'date_echeance']
-    list_filter     = ['statut', 'date_emission']
+                       'statut', 'type_facture', 'recurrence_active', 'recurrence_prochaine', 'date_emission']
+    list_filter     = ['statut', 'type_facture', 'recurrence_active', 'recurrence_frequence', 'date_emission']
     search_fields   = ['numero', 'objet', 'client__nom', 'client__societe']
     readonly_fields = ['numero', 'created_at', 'updated_at', 'subtotal_ht', 'tva_amount', 'total_ttc']
     inlines         = [LigneFactureInline]
+
+    fieldsets = (
+        ('Informations', {
+            'fields': ('numero', 'client', 'objet', 'notes', 'statut')
+        }),
+        ('Montants', {
+            'fields': (('montant_ht', 'tva_rate'), ('subtotal_ht', 'tva_amount', 'total_ttc'))
+        }),
+        ('Dates', {
+            'fields': ('date_emission', 'date_echeance', 'created_at', 'updated_at')
+        }),
+        ('Récurrence', {
+            'fields': (
+                'type_facture', 'recurrence_frequence', 'recurrence_debut',
+                'recurrence_fin', 'recurrence_prochaine', 'recurrence_active',
+                'source_recurring',
+            ),
+            'classes': ('collapse',),
+        }),
+        ('Audit', {
+            'fields': ('created_by',),
+        }),
+    )
 

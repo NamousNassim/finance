@@ -11,21 +11,48 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-3xl">
-    <div class="mb-6">
-        <h1 class="page-title">{{ action }}</h1>
-        {% if facture %}
-        <p class="page-subtitle">Numéro : {{ facture.numero }}</p>
-        {% endif %}
+<div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- Hero / header -->
+    <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-900 rounded-3xl text-white p-6 sm:p-8 shadow-2xl flex flex-col gap-3">
+        <div class="flex items-center justify-between gap-3">
+            <div>
+                <p class="uppercase text-xs tracking-[0.28em] text-indigo-200 font-semibold">Facturation intelligente</p>
+                <h1 class="text-3xl font-semibold mt-1">{{ action }}</h1>
+                {% if facture %}<p class="text-indigo-100/80 text-sm">Numéro : {{ facture.numero }}</p>{% endif %}
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="px-3 py-1 rounded-full bg-white/15 border border-white/20 text-sm">
+                    {% if form.type_facture.value == "RECURRENTE" %}Automatisation activée{% else %}Facture ponctuelle{% endif %}
+                </div>
+            </div>
+        </div>
+        <p class="text-indigo-100/80 text-sm max-w-2xl">Configurez vos factures ponctuelles ou récurrentes. Les champs calculés sont indiqués et protégés pour éviter toute erreur. Les automatisations prennent le relais dès que la fréquence est définie.</p>
     </div>
 
-    <form method="post" novalidate id="facture-form">
+    <form method="post" novalidate id="facture-form" class="space-y-6">
         {% csrf_token %}
+        {% if form.non_field_errors %}
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+        {% if lignes_formset.non_form_errors %}
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3">
+            {{ lignes_formset.non_form_errors }}
+        </div>
+        {% endif %}
 
-        <!-- Informations -->
-        <div class="card card-body mb-4">
-            <p class="form-section-title">Informations générales</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- Client et facture -->
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-100/80 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                    <p class="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">Client et facture</p>
+                    <h2 class="text-lg font-semibold text-slate-900">Détails principaux</h2>
+                </div>
+                <span class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-700">Champs éditables</span>
+            </div>
+            <div class="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
                     <label class="form-label">{{ form.client.label }} <span class="text-rose-500">*</span></label>
                     {{ form.client }}
@@ -39,11 +66,13 @@
                 <div>
                     <label class="form-label">{{ form.date_emission.label }}</label>
                     {{ form.date_emission }}
+                    <p class="form-hint">Date d'émission visible sur la facture</p>
                     {% if form.date_emission.errors %}<p class="form-error">{{ form.date_emission.errors|striptags }}</p>{% endif %}
                 </div>
                 <div>
                     <label class="form-label">{{ form.date_echeance.label }}</label>
                     {{ form.date_echeance }}
+                    <p class="form-hint">Échéance client (optionnelle)</p>
                     {% if form.date_echeance.errors %}<p class="form-error">{{ form.date_echeance.errors|striptags }}</p>{% endif %}
                 </div>
                 <div>
@@ -54,38 +83,129 @@
             </div>
         </div>
 
-        <!-- Montants -->
-        <div class="card card-body mb-4">
-            <p class="form-section-title">Montant</p>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+        <!-- Dates et automatisation -->
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-100/80 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                    <label class="form-label">{{ form.montant_ht.label }}</label>
-                    <div class="relative">
-                        {{ form.montant_ht }}
-                        <span class="absolute inset-y-0 right-3 flex items-center pointer-events-none text-slate-400 text-sm">DH</span>
-                    </div>
-                    {% if form.montant_ht.errors %}<p class="form-error">{{ form.montant_ht.errors|striptags }}</p>{% endif %}
+                    <p class="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">Dates et automatisation</p>
+                    <h2 class="text-lg font-semibold text-slate-900">Pilotage des récurrences</h2>
+                </div>
+                <span class="text-xs px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">Automatique</span>
+            </div>
+            <div class="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="form-label">{{ form.type_facture.label }}</label>
+                    {{ form.type_facture }}
+                    <p class="form-hint">Ponctuelle ou modèle récurrent</p>
+                    {% if form.type_facture.errors %}<p class="form-error">{{ form.type_facture.errors|striptags }}</p>{% endif %}
                 </div>
                 <div>
-                    <label class="form-label">{{ form.taux_tva.label }}</label>
-                    <div class="relative">
-                        {{ form.taux_tva }}
-                        <span class="absolute inset-y-0 right-3 flex items-center pointer-events-none text-slate-400 text-sm">%</span>
-                    </div>
-                    {% if form.taux_tva.errors %}<p class="form-error">{{ form.taux_tva.errors|striptags }}</p>{% endif %}
+                    <label class="form-label">{{ form.recurrence_frequence.label }}</label>
+                    {{ form.recurrence_frequence }}
+                    <p class="form-hint">Mensuelle, trimestrielle ou annuelle</p>
+                    {% if form.recurrence_frequence.errors %}<p class="form-error">{{ form.recurrence_frequence.errors|striptags }}</p>{% endif %}
                 </div>
                 <div>
-                    <p class="form-label text-slate-400">Montant TTC (calculé)</p>
-                    <div class="form-input bg-slate-50 text-slate-700 text-money font-semibold" id="ttc-display">—</div>
+                    <label class="form-label">{{ form.recurrence_debut.label }}</label>
+                    {{ form.recurrence_debut }}
+                    <p class="form-hint">Date à partir de laquelle on génère</p>
+                    {% if form.recurrence_debut.errors %}<p class="form-error">{{ form.recurrence_debut.errors|striptags }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="form-label">{{ form.recurrence_fin.label }}</label>
+                    {{ form.recurrence_fin }}
+                    <p class="form-hint">Arrêt automatique (optionnel)</p>
+                    {% if form.recurrence_fin.errors %}<p class="form-error">{{ form.recurrence_fin.errors|striptags }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="form-label">{{ form.recurrence_prochaine.label }}</label>
+                    <div class="bg-slate-50 text-slate-700 rounded-xl px-3 py-2 border border-slate-200">
+                        {{ form.recurrence_prochaine }}
+                    </div>
+                    <p class="text-xs text-emerald-700 mt-1">Calculée automatiquement selon la fréquence et la date de début.</p>
+                    {% if form.recurrence_prochaine.errors %}<p class="form-error">{{ form.recurrence_prochaine.errors|striptags }}</p>{% endif %}
+                </div>
+                <div class="flex items-center gap-2 pt-6">
+                    {{ form.recurrence_active }}
+                    <label class="form-label mb-0">{{ form.recurrence_active.label }}</label>
+                    {% if form.recurrence_active.errors %}<p class="form-error">{{ form.recurrence_active.errors|striptags }}</p>{% endif %}
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="form-label">{{ form.source_recurring.label }}</label>
+                    <div class="bg-slate-50 text-slate-600 rounded-xl px-3 py-2 border border-slate-200">
+                        {{ form.source_recurring }}
+                    </div>
+                    <p class="form-hint">Renseignée automatiquement pour les factures générées.</p>
+                    {% if form.source_recurring.errors %}<p class="form-error">{{ form.source_recurring.errors|striptags }}</p>{% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Montants & résumé -->
+        <div class="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6">
+            <div class="bg-white rounded-2xl shadow-xl border border-slate-100/80 overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100">
+                    <p class="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">Montants</p>
+                    <h2 class="text-lg font-semibold text-slate-900">Paramétrage financier</h2>
+                </div>
+                <div class="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                    <div>
+                        <label class="form-label">{{ form.montant_ht.label }}</label>
+                        <div class="relative">
+                            {{ form.montant_ht }}
+                            <span class="absolute inset-y-0 right-3 flex items-center pointer-events-none text-slate-400 text-sm">DH</span>
+                        </div>
+                        {% if form.montant_ht.errors %}<p class="form-error">{{ form.montant_ht.errors|striptags }}</p>{% endif %}
+                    </div>
+                    <div>
+                        <label class="form-label">{{ form.tva_rate.label }}</label>
+                        <div class="relative">
+                            {{ form.tva_rate }}
+                            <span class="absolute inset-y-0 right-3 flex items-center pointer-events-none text-slate-400 text-sm">%</span>
+                        </div>
+                        {% if form.tva_rate.errors %}<p class="form-error">{{ form.tva_rate.errors|striptags }}</p>{% endif %}
+                    </div>
+                    <div>
+                        <p class="form-label text-slate-400">Montant TTC (calculé)</p>
+                        <div class="form-input bg-slate-50 text-slate-800 text-money font-semibold" id="ttc-display">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-800 overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.24em] text-slate-300 font-semibold">Résumé automatique</p>
+                        <h2 class="text-lg font-semibold">État en temps réel</h2>
+                    </div>
+                    <span class="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-100 border border-emerald-400/40">Calculé</span>
+                </div>
+                <div class="p-6 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-200">Sous-total lignes</span>
+                        <span class="text-lg font-semibold text-amber-200" id="lines-subtotal">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-200">Montant TTC</span>
+                        <span class="text-lg font-semibold text-white" id="ttc-display-summary">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-200">Prochaine génération</span>
+                        <span class="text-sm font-semibold text-emerald-200" id="next-gen-pill">{{ form.recurrence_prochaine.value|default:"—" }}</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-2">Les montants et dates se mettent à jour dès que vous modifiez les champs sources.</p>
                 </div>
             </div>
         </div>
 
         <!-- Lignes de facturation -->
-        <div class="card card-body mb-4">
-            <div class="flex items-center justify-between mb-4">
-                <p class="form-section-title" style="margin:0;border:none;padding:0">Lignes de facturation</p>
-                <button type="button" id="add-line" class="btn btn--secondary btn--sm">
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-100/80 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                    <p class="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">Lignes de facturation</p>
+                    <h2 class="text-lg font-semibold text-slate-900">Prestations et débours</h2>
+                </div>
+                <button type="button" id="add-line" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-lg shadow-indigo-200/70 hover:-translate-y-[1px] transition">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m-7-7h14"/></svg>
                     Ajouter une ligne
                 </button>
@@ -93,16 +213,16 @@
 
             {{ lignes_formset.management_form }}
 
-            <div class="hidden sm:grid grid-cols-[1fr_80px_100px_auto] gap-3 mb-2 px-1">
-                <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Description</p>
-                <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 text-right">Qté</p>
-                <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 text-right">P.U. HT</p>
-                <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 text-right">Total HT</p>
+            <div class="hidden lg:grid grid-cols-[1.6fr_120px_140px_auto] gap-3 px-6 pt-4 pb-2 text-xs uppercase tracking-wide text-slate-400 font-semibold">
+                <p>Description</p>
+                <p class="text-right">Qté</p>
+                <p class="text-right">P.U. HT</p>
+                <p class="text-right">Total HT</p>
             </div>
 
-            <div id="lignes-container" class="space-y-2">
+            <div id="lignes-container" class="divide-y divide-slate-100">
                 {% for lf in lignes_formset %}
-                <div class="ligne-row" id="ligne-{{ forloop.counter0 }}">
+                <div class="ligne-row px-4 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-[1.6fr_120px_140px_auto] gap-3" id="ligne-{{ forloop.counter0 }}">
                     {% for hidden in lf.hidden_fields %}{{ hidden }}{% endfor %}
                     <div>
                         {{ lf.description }}
@@ -118,6 +238,7 @@
                     </div>
                     <div class="flex items-center justify-end gap-2">
                         <span class="text-money text-sm ligne-total text-slate-700 min-w-[70px] text-right">—</span>
+                        {% if lf.item_type %}{{ lf.item_type }}{% endif %}
                         {% if lf.DELETE %}
                         <label class="flex items-center" title="Supprimer">
                             {{ lf.DELETE }}
@@ -129,30 +250,36 @@
                 {% endfor %}
             </div>
 
-            <div class="mt-4 flex justify-end">
-                <div class="w-56 space-y-1.5 text-sm border-t border-slate-100 pt-3">
-                    <div class="flex justify-between text-slate-500">
+            <div class="px-6 py-4 bg-slate-50 flex justify-end">
+                <div class="w-64 space-y-1.5 text-sm">
+                    <div class="flex justify-between text-slate-600">
                         <span>Sous-total lignes</span>
-                        <span class="text-money" id="lines-subtotal">—</span>
+                        <span class="text-money font-semibold" id="lines-subtotal-footer">—</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Notes -->
-        <div class="card card-body mb-6">
-            <p class="form-section-title">Notes</p>
-            <label class="form-label">{{ form.notes.label }}</label>
-            {{ form.notes }}
-            <p class="form-hint">Non imprimée sur la facture client (usage interne)</p>
+        <!-- Notes internes -->
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-100/80 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100">
+                <p class="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">Notes internes</p>
+                <h2 class="text-lg font-semibold text-slate-900">Contexte non imprimé</h2>
+            </div>
+            <div class="p-6">
+                <label class="form-label">{{ form.notes.label }}</label>
+                {{ form.notes }}
+                <p class="form-hint">Ces informations restent internes et ne figurent pas sur le PDF client.</p>
+            </div>
         </div>
 
-        <div class="flex items-center gap-3">
+        <!-- Actions -->
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3 justify-end pt-2 pb-8">
+            <a href="{% url 'dashboard:facture_list' %}" class="btn btn--secondary">Annuler</a>
             <button type="submit" class="btn btn--primary">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a 2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                 {{ submit_label }}
             </button>
-            <a href="{% url 'dashboard:facture_list' %}" class="btn btn--secondary">Annuler</a>
         </div>
     </form>
 </div>
@@ -162,14 +289,17 @@
 <script>
 (function () {
     const htInput  = document.querySelector('[name$="montant_ht"]');
-    const tvaInput = document.querySelector('[name$="taux_tva"]');
+    const tvaInput = document.querySelector('[name$="tva_rate"]');
     const ttcEl    = document.getElementById('ttc-display');
+    const ttcSummary = document.getElementById('ttc-display-summary');
 
     function updateTTC() {
         const ht  = parseFloat(htInput && htInput.value)  || 0;
         const tva = parseFloat(tvaInput && tvaInput.value) || 0;
         const ttc = ht * (1 + tva / 100);
-        if (ttcEl) ttcEl.textContent = ttc ? ttc.toFixed(2) + ' DH' : '—';
+        const formatted = ttc ? ttc.toFixed(2) + ' DH' : '—';
+        if (ttcEl) ttcEl.textContent = formatted;
+        if (ttcSummary) ttcSummary.textContent = formatted;
     }
     if (htInput)  htInput.addEventListener('input', updateTTC);
     if (tvaInput) tvaInput.addEventListener('input', updateTTC);
@@ -188,8 +318,11 @@
             const el = row.querySelector('.ligne-total');
             if (el) el.textContent = amt ? amt.toFixed(2) + ' DH' : '—';
         });
+        const formatted = total ? total.toFixed(2) + ' DH' : '—';
         const sub = document.getElementById('lines-subtotal');
-        if (sub) sub.textContent = total ? total.toFixed(2) + ' DH' : '—';
+        const subFooter = document.getElementById('lines-subtotal-footer');
+        if (sub) sub.textContent = formatted;
+        if (subFooter) subFooter.textContent = formatted;
     }
 
     document.addEventListener('input', function (e) {
@@ -205,15 +338,16 @@
         addBtn.addEventListener('click', function () {
             const count = parseInt(totalForms.value, 10);
             const prefix = totalForms.name.replace('-TOTAL_FORMS', '');
-            const html = '<div class="ligne-row">' +
+            const html = '<div class="ligne-row px-4 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-[1.6fr_120px_140px_auto] gap-3">' +
                 '<div><input type="text" name="' + prefix + '-' + count + '-description"' +
                 ' class="form-input" placeholder="Description de la prestation"></div>' +
                 '<div><input type="number" step="0.01" min="0" name="' + prefix + '-' + count + '-quantite"' +
                 ' value="1" class="form-input ligne-qty text-right" placeholder="1"></div>' +
                 '<div><input type="number" step="0.01" min="0" name="' + prefix + '-' + count + '-prix_unitaire"' +
                 ' class="form-input ligne-pu text-right" placeholder="0.00"></div>' +
-                '<div class="flex items-center justify-end">' +
+                '<div class="flex items-center justify-end gap-2">' +
                 '<span class="text-money text-sm ligne-total text-slate-700 min-w-[70px] text-right">—</span>' +
+                '<input type="hidden" name="' + prefix + '-' + count + '-item_type" value="NORMAL">' +
                 '</div>' +
                 '<input type="hidden" name="' + prefix + '-' + count + '-id" value="">' +
                 '</div>';
