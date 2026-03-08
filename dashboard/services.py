@@ -1,5 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, timedelta
+from io import BytesIO
 import calendar
 
 try:
@@ -9,10 +10,14 @@ except ImportError:  # lightweight fallback
 
 from django.db import transaction
 from django.utils import timezone
+from django.template.loader import render_to_string
+from django.core.mail import EmailMessage
+from django.conf import settings
 
 from .models import (
     Facture, LigneFacture,
     FactureStatut, FactureType, RecurrenceFrequence,
+    FactureEmailLog,
 )
 
 
@@ -147,3 +152,118 @@ def update_next_generation(template: Facture) -> None:
         template.recurrence_prochaine = new_date
 
     template.save(update_fields=['recurrence_active', 'recurrence_prochaine', 'updated_at'])
+
+
+# ——— Emails ———
+
+def render_invoice_pdf_bytes(facture: Facture) -> bytes | None:
+    """
+    Rend le PDF de facture en mémoire (xhtml2pdf).
+    Retourne None en cas d'erreur pour ne pas bloquer l'envoi.
+    """
+    try:
+        from xhtml2pdf import pisa
+    except Exception:
+        return None
+
+    facture = compute_invoice_totals(facture)
+    lignes  = facture.lignes.filter(item_type='NORMAL')
+    debours = facture.lignes.filter(item_type='DEBOURS')
+
+    context = {
+        "facture": facture,
+        "client": facture.client,
+        "lignes": lignes,
+        "debours": debours,
+        "today": timezone.now().date(),
+    }
+
+    html = render_to_string("invoices/invoice_pdf.html", context)
+    result = BytesIO()
+    pdf = pisa.CreatePDF(src=html, dest=result, encoding="utf-8")
+    if pdf.err:
+        return None
+    return result.getvalue()
+
+
+def send_invoice_email(facture: Facture, admin_email: str | None = None):
+    """
+    Envoie l'email de facture au client et, si fourni, un email séparé à l'admin.
+    Retourne (success: bool, error: str | None) pour l'envoi client. Les erreurs admin sont journalisées mais ne bloquent pas.
+    """
+    to_email = (facture.client.email or "").strip()
+    if not to_email:
+        print(f"[email] Aucun email client pour facture {facture.pk}, envoi ignoré.")
+        return False, "No client email"
+
+    ctx = {
+        "numero": facture.numero,
+        "client_nom": str(facture.client),
+        "total_ttc": facture.total_ttc,
+        "date_echeance": facture.date_echeance or "—",
+        "client_email": to_email,
+    }
+    subject = getattr(settings, "INVOICE_SUBJECT_TEMPLATE", "Votre facture {numero}").format(**ctx)
+    body = getattr(settings, "INVOICE_BODY_TEMPLATE", "").format(**ctx)
+
+    email = EmailMessage(
+        subject=subject,
+        body=body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        to=[to_email],
+    )
+
+    success = False
+    error_msg = None
+    pdf_bytes = render_invoice_pdf_bytes(facture)
+    if pdf_bytes:
+        filename = f"facture-{facture.numero}.pdf"
+        email.attach(filename, pdf_bytes, "application/pdf")
+
+    try:
+        email.send(fail_silently=False)
+        success = True
+    except Exception as exc:
+        error_msg = str(exc)
+        print(f"[email] Erreur d'envoi facture {facture.pk}: {exc}")
+
+    FactureEmailLog.objects.create(
+        facture=facture,
+        to_email=to_email,
+        cc_email="",
+        subject=subject,
+        success=success,
+        error_message=error_msg or "",
+    )
+
+    # Envoi admin séparé (silencieux si échec)
+    if admin_email:
+        admin_ctx = ctx
+        adm_subject = getattr(settings, "ADMIN_INVOICE_SUBJECT_TEMPLATE", "Facture {numero} envoyée").format(**admin_ctx)
+        adm_body = getattr(settings, "ADMIN_INVOICE_BODY_TEMPLATE", "").format(**admin_ctx)
+        adm_email = EmailMessage(
+            subject=adm_subject,
+            body=adm_body,
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+            to=[admin_email],
+        )
+        if pdf_bytes:
+            adm_email.attach(filename, pdf_bytes, "application/pdf")
+        adm_success = False
+        adm_err = ""
+        try:
+            adm_email.send(fail_silently=False)
+            adm_success = True
+        except Exception as exc:
+            adm_err = str(exc)
+            print(f"[email] Erreur d'envoi admin facture {facture.pk}: {exc}")
+        FactureEmailLog.objects.create(
+            facture=facture,
+            to_email=admin_email,
+            cc_email="",
+            subject=adm_subject,
+            success=adm_success,
+            error_message=adm_err,
+        )
+
+    return success, error_msg

@@ -9,14 +9,16 @@ from django.template.loader import render_to_string
 from django.views.generic import ListView, CreateView, UpdateView
 from django.utils import timezone
 from io import BytesIO
+from django.conf import settings
+from django.core.paginator import Paginator
 
 from .models import (
     Client, ClientStatut,
     Prospect, ProspectStatut, ProspectSource,
-    Facture, FactureStatut, LigneFacture,
+    Facture, FactureStatut, LigneFacture, FactureEmailLog,
 )
 from .forms import ClientForm, ProspectForm, FactureForm, LigneFactureFormSet
-from .services import compute_invoice_totals
+from .services import compute_invoice_totals, send_invoice_email
 
 
 # ── DASHBOARD ──────────────────────────────────────────────────────────────────
@@ -261,8 +263,9 @@ class FactureListView(LoginRequiredMixin, ListView):
 def facture_detail(request, pk):
     facture = get_object_or_404(Facture.objects.select_related('client'), pk=pk)
     lignes  = facture.lignes.all()
+    logs    = facture.email_logs.all()
     return render(request, 'dashboard/factures/detail.html', {
-        'facture': facture, 'lignes': lignes
+        'facture': facture, 'lignes': lignes, 'email_logs': logs
     })
 
 
@@ -278,7 +281,15 @@ def facture_create(request):
             formset.instance = facture
             formset.save()
             facture.recompute_totals(save=True)
-            messages.success(request, f'Facture {facture.numero} créée avec succès.')
+            # Envoi immédiat de la facture par email si l'adresse client existe
+            success, err = send_invoice_email(
+                facture,
+                admin_email=getattr(settings, "INVOICE_ADMIN_EMAIL", None),
+            )
+            if success:
+                messages.success(request, f'Facture {facture.numero} créée et envoyée à {facture.client.email}.')
+            else:
+                messages.warning(request, f'Facture {facture.numero} créée, mais envoi email échoué ({err or "non précisé"}).')
             return redirect('dashboard:facture_list')
         else:
             # Debug minimal : log les erreurs côté serveur
@@ -337,3 +348,21 @@ def facture_pdf(request, pk):
     filename = f"facture-{facture.numero}.pdf"
     response["Content-Disposition"] = f'inline; filename="{filename}"'
     return response
+
+
+# ——— Notifications / Historique envois ———
+@login_required
+def notifications(request):
+    status = request.GET.get('status', '')
+    logs = FactureEmailLog.objects.select_related('facture', 'facture__client').order_by('-sent_at')
+    if status == 'success':
+        logs = logs.filter(success=True)
+    elif status == 'fail':
+        logs = logs.filter(success=False)
+
+    paginator = Paginator(logs, 25)
+    page = paginator.get_page(request.GET.get('page'))
+    return render(request, 'dashboard/notifications/list.html', {
+        'page_obj': page,
+        'status_filter': status,
+    })

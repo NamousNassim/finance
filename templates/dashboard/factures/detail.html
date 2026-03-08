@@ -179,6 +179,32 @@
            class="btn btn--ghost w-full justify-center">
             ← Retour aux factures
         </a>
+        <div class="card card-body">
+            <p class="text-xs font-bold uppercase tracking-[0.07em] text-slate-400 mb-3">Historique des envois</p>
+            {% if email_logs %}
+            <div class="space-y-3">
+                {% for log in email_logs %}
+                <div class="flex items-start justify-between gap-2">
+                    <div class="text-sm">
+                        <p class="font-semibold text-slate-800">{{ log.subject }}</p>
+                        <p class="text-slate-500 text-xs">À {{ log.to_email }}{% if log.cc_email %} — CC {{ log.cc_email }}{% endif %}</p>
+                        <p class="text-slate-400 text-xs">{{ log.sent_at|date:"d/m/Y H:i" }}</p>
+                        {% if log.error_message %}
+                        <p class="text-rose-600 text-xs mt-1">Erreur: {{ log.error_message }}</p>
+                        {% endif %}
+                    </div>
+                    {% if log.success %}
+                    <span class="badge badge--success">Envoyé</span>
+                    {% else %}
+                    <span class="badge badge--danger">Échec</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500">Aucun envoi enregistré.</p>
+            {% endif %}
+        </div>
     </div>
 
 </div>

@@ -1,0 +1,82 @@
+{% extends "base_app.html" %}
+
+{% block title %}Notifications factures{% endblock %}
+
+{% block breadcrumb %}
+<a href="{% url 'dashboard:home' %}" class="text-slate-400 hover:text-slate-600 transition">Tableau de bord</a>
+<svg class="mx-1 text-slate-300" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+<span class="font-semibold text-slate-800">Notifications</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-5">
+    <div>
+        <p class="text-xs uppercase tracking-[0.18em] text-slate-400 font-semibold">Historique</p>
+        <h1 class="text-2xl font-semibold text-slate-900">Envois de factures</h1>
+    </div>
+    <div class="flex items-center gap-2">
+        <a href="?status=" class="btn btn--ghost btn--sm {% if not status_filter %}border border-slate-300{% endif %}">Tous</a>
+        <a href="?status=success" class="btn btn--ghost btn--sm {% if status_filter == 'success' %}border border-emerald-300 text-emerald-700{% endif %}">Réussis</a>
+        <a href="?status=fail" class="btn btn--ghost btn--sm {% if status_filter == 'fail' %}border border-rose-300 text-rose-700{% endif %}">Échecs</a>
+    </div>
+</div>
+
+<div class="card overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="crm-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Facture</th>
+                    <th>Client</th>
+                    <th>Destinataire</th>
+                    <th>Statut</th>
+                    <th class="text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in page_obj %}
+                <tr>
+                    <td>{{ log.sent_at|date:"d/m/Y H:i" }}</td>
+                    <td class="font-semibold">
+                        <a class="text-blue-700 hover:underline" href="{% url 'dashboard:facture_detail' log.facture.pk %}">{{ log.facture.numero }}</a>
+                    </td>
+                    <td>{{ log.facture.client }}</td>
+                    <td>
+                        <div class="text-sm text-slate-800">{{ log.to_email }}</div>
+                    </td>
+                    <td>
+                        {% if log.success %}
+                        <span class="badge badge--success">Envoyé</span>
+                        {% else %}
+                        <span class="badge badge--danger">Échec</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-right space-x-2">
+                        <a href="{% url 'dashboard:facture_pdf' log.facture.pk %}" class="btn btn--secondary btn--xs" target="_blank" rel="noopener">PDF</a>
+                        <a href="{% url 'dashboard:facture_detail' log.facture.pk %}" class="btn btn--ghost btn--xs">Voir</a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center text-slate-500 py-6">Aucun envoi enregistré.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div class="px-4 py-3 flex items-center justify-between text-sm text-slate-500 border-t border-slate-100">
+        <div>Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</div>
+        <div class="space-x-2">
+            {% if page_obj.has_previous %}
+            <a class="btn btn--ghost btn--xs" href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Précédent</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+            <a class="btn btn--ghost btn--xs" href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Suivant</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

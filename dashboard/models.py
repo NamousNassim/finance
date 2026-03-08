@@ -289,3 +289,22 @@ class LigneFacture(models.Model):
     def __str__(self):
         return f"{self.description} ×{self.quantite}"
 
+
+class FactureEmailLog(models.Model):
+    facture       = models.ForeignKey(Facture, on_delete=models.CASCADE, related_name='email_logs')
+    to_email      = models.CharField(max_length=255)
+    cc_email      = models.CharField(max_length=255, blank=True)
+    subject       = models.CharField(max_length=255)
+    success       = models.BooleanField(default=False)
+    error_message = models.TextField(blank=True)
+    sent_at       = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-sent_at']
+        verbose_name = 'Historique envoi facture'
+        verbose_name_plural = 'Historique envoi factures'
+
+    def __str__(self):
+        status = "OK" if self.success else "KO"
+        return f"{self.facture.numero} → {self.to_email} ({status})"
+

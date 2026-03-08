@@ -290,6 +290,7 @@
     const recFreq   = document.querySelector('[name$="recurrence_frequence"]');
     const recStart  = document.querySelector('[name$="recurrence_debut"]');
     const recNext   = document.querySelector('[name$="recurrence_prochaine"]');
+    const recActive = document.querySelector('[name$="recurrence_active"]');
 
     function updateTTC() {
         const ht  = parseFloat(htInput && htInput.value)  || 0;
@@ -390,7 +391,15 @@
         if (!recurring) {
             if (recNext) recNext.value = '';
             if (nextGenPill) nextGenPill.textContent = '—';
+            if (recActive) {
+                recActive.checked = false;
+                recActive.disabled = true;
+            }
         } else {
+            if (recActive) {
+                recActive.checked = true;
+                recActive.disabled = false;
+            }
             computeNextGeneration();
         }
     }

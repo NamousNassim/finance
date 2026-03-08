@@ -171,3 +171,46 @@ if _csrf_trusted:
 
 # Use BigAutoField for implicit primary keys
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Email (configure via environment in production)
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "false").lower() == "true"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "facturation@adk-media.com")
+INVOICE_ADMIN_EMAIL = os.getenv("INVOICE_ADMIN_EMAIL", "")
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "30"))
+
+# Email templates (customisable via .env)
+INVOICE_SUBJECT_TEMPLATE = os.getenv(
+    "INVOICE_SUBJECT_TEMPLATE",
+    "Votre facture {numero}"
+)
+INVOICE_BODY_TEMPLATE = os.getenv(
+    "INVOICE_BODY_TEMPLATE",
+    (
+        "Bonjour {client_nom},\n\n"
+        "Votre facture {numero} est disponible en pièce jointe.\n"
+        "Montant TTC : {total_ttc} DH\n"
+        "Échéance : {date_echeance}\n\n"
+        "Merci pour votre confiance.\n"
+    )
+)
+ADMIN_INVOICE_SUBJECT_TEMPLATE = os.getenv(
+    "ADMIN_INVOICE_SUBJECT_TEMPLATE",
+    "Facture {numero} envoyée au client {client_nom}"
+)
+ADMIN_INVOICE_BODY_TEMPLATE = os.getenv(
+    "ADMIN_INVOICE_BODY_TEMPLATE",
+    (
+        "Bonjour,\n\n"
+        "Une facture a été envoyée au client {client_nom} ({client_email}).\n"
+        "Numéro : {numero}\n"
+        "Montant TTC : {total_ttc} DH\n"
+        "Échéance : {date_echeance}\n\n"
+        "PDF en pièce jointe.\n"
+    )
+)
