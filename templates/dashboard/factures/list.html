@@ -47,10 +47,17 @@
             facture{% if paginator.count != 1 %}s{% endif %}
         </p>
     </div>
+    <div class="flex items-center gap-2">
+        <a href="{% url 'dashboard:facture_create' %}" class="btn btn--primary btn--sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5"><path d="M12 5v14m-7-7h14"/></svg>
+            Ajouter une facture
+        </a>
+    </div>
 </div>
 
 <!-- Filter bar -->
-<form method="get" class="filter-bar">
+<form method="get" class="filter-bar" id="facture-filter">
     <div class="relative flex-1 min-w-[180px]">
         <span class="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-slate-400">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -65,8 +72,18 @@
         <option value="{{ val }}" {% if current_statut == val %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
     </select>
+    <select name="client" class="form-select" style="width:auto;min-width:200px">
+        <option value="">Tous les clients</option>
+        {% for c in clients_filter %}
+        <option value="{{ c.id }}" {% if current_client|default:'' == c.id|stringformat:"s" %}selected{% endif %}>
+            {{ c.societe|default:c.nom }}
+        </option>
+        {% endfor %}
+    </select>
+    <input type="date" name="date_from" value="{{ current_date_from }}" class="form-input" style="width:auto">
+    <input type="date" name="date_to" value="{{ current_date_to }}" class="form-input" style="width:auto">
     <button type="submit" class="btn btn--primary btn--sm">Filtrer</button>
-    {% if current_q or current_statut %}
+    {% if current_q or current_statut or current_date_from or current_date_to or current_client %}
     <a href="{% url 'dashboard:facture_list' %}" class="btn btn--secondary btn--sm">Effacer</a>
     {% endif %}
 </form>
@@ -128,6 +145,10 @@
                                class="btn btn--ghost btn--sm">Voir</a>
                             <a href="{% url 'dashboard:facture_update' f.pk %}"
                                class="btn btn--secondary btn--sm">Modifier</a>
+                            {% if f.statut == 'ENVOYEE' and f.client.email %}
+                            <a href="{% url 'dashboard:facture_resend' f.pk %}"
+                               class="btn btn--primary btn--sm">Renvoyer</a>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
@@ -164,15 +185,15 @@
     {% if is_paginated %}
     <div class="pagination">
         {% if page_obj.has_previous %}
-        <a href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}"
+        <a href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}{% if current_date_from %}&date_from={{ current_date_from }}{% endif %}{% if current_date_to %}&date_to={{ current_date_to }}{% endif %}"
            class="page-link">←</a>
         {% endif %}
         {% for num in paginator.page_range %}
-        <a href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}"
+        <a href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}{% if current_date_from %}&date_from={{ current_date_from }}{% endif %}{% if current_date_to %}&date_to={{ current_date_to }}{% endif %}"
            class="page-link {% if num == page_obj.number %}page-link--active{% endif %}">{{ num }}</a>
         {% endfor %}
         {% if page_obj.has_next %}
-        <a href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}"
+        <a href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}{% if current_date_from %}&date_from={{ current_date_from }}{% endif %}{% if current_date_to %}&date_to={{ current_date_to }}{% endif %}"
            class="page-link">→</a>
         {% endif %}
         <span class="ml-auto text-xs text-slate-400">
@@ -182,4 +203,18 @@
     {% endif %}
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Soumission instantanée des filtres (statut, client, dates)
+(function () {
+    const form = document.getElementById('facture-filter');
+    if (!form) return;
+    const autoSubmit = () => form.submit();
+    form.querySelectorAll('select, input[type="date"]').forEach(el => {
+        el.addEventListener('change', autoSubmit);
+    });
+})();
+</script>
 {% endblock %}

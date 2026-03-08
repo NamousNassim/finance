@@ -1,0 +1,75 @@
+%% Diagramme de classes CRM Facturation MCCG (V0)
+classDiagram
+    direction LR
+
+    class Utilisateur {
+        +id
+        +email
+        +mot_de_passe
+    }
+
+    class Client {
+        +id
+        +nom
+        +prenom
+        +societe
+        +email
+        +telephone
+        +statut
+    }
+
+    class Prospect {
+        +id
+        +nom
+        +prenom
+        +societe
+        +email
+        +telephone
+        +statut_pipeline
+    }
+
+    class Facture {
+        +id
+        +numero
+        +objet
+        +montant_ht
+        +tva_rate
+        +total_ttc
+        +statut
+        +date_emission
+        +date_echeance
+        +type_facture
+        +recurrence_frequence
+        +recurrence_prochaine
+    }
+
+    class LigneFacture {
+        +id
+        +description
+        +quantite
+        +prix_unitaire
+        +item_type
+    }
+
+    class FactureEmailLog {
+        +id
+        +to_email
+        +subject
+        +success
+        +sent_at
+    }
+
+    %% Relations
+    Utilisateur "1" --> "0..*" Client : crée
+    Utilisateur "1" --> "0..*" Prospect : crée
+    Utilisateur "1" --> "0..*" Facture : crée
+
+    Client "1" --> "0..*" Facture : factures
+    Prospect "0..1" --> "0..1" Client : converti_en
+
+    Facture "1" --> "1..*" LigneFacture : contient
+    Facture "0..*" --> "0..*" FactureEmailLog : envois
+
+    Facture "0..*" --> "0..*" Facture : générée_depuis
+    Facture <|-- LigneFacture
+    Facture <|-- FactureEmailLog

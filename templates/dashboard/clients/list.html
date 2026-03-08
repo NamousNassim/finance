@@ -47,8 +47,13 @@
         <option value="{{ val }}" {% if current_statut == val %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
     </select>
+    <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" name="no_invoice" value="1" {% if current_no_invoice %}checked{% endif %}
+               class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+        Sans facture
+    </label>
     <button type="submit" class="btn btn--primary btn--sm">Filtrer</button>
-    {% if current_q or current_statut %}
+    {% if current_q or current_statut or current_no_invoice %}
     <a href="{% url 'dashboard:client_list' %}" class="btn btn--secondary btn--sm">Effacer</a>
     {% endif %}
 </form>
@@ -135,20 +140,20 @@
     {% if is_paginated %}
     <div class="pagination">
         {% if page_obj.has_previous %}
-        <a href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}"
+        <a href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}{% if current_no_invoice %}&no_invoice=1{% endif %}"
            class="page-link">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
         </a>
         {% endif %}
         {% for num in paginator.page_range %}
-        <a href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}"
+        <a href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}{% if current_no_invoice %}&no_invoice=1{% endif %}"
            class="page-link {% if num == page_obj.number %}page-link--active{% endif %}">
             {{ num }}
         </a>
         {% endfor %}
         {% if page_obj.has_next %}
-        <a href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}"
+        <a href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_statut %}&statut={{ current_statut }}{% endif %}{% if current_no_invoice %}&no_invoice=1{% endif %}"
            class="page-link">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>

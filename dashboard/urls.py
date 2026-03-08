@@ -24,6 +24,7 @@ urlpatterns = [
     path("factures/<int:pk>/",          views.facture_detail,            name="facture_detail"),
     path("factures/<int:pk>/modifier/", views.facture_update,            name="facture_update"),
     path("factures/<int:pk>/pdf/",      views.facture_pdf,               name="facture_pdf"),
+    path("factures/<int:pk>/renvoyer/", views.facture_resend,            name="facture_resend"),
 
     # Notifications / historique envois
     path("notifications/",              views.notifications,             name="notifications"),

@@ -175,6 +175,12 @@
            class="btn btn--secondary w-full justify-center">
             Modifier la facture
         </a>
+        {% if facture.statut == 'ENVOYEE' and facture.client.email %}
+        <a href="{% url 'dashboard:facture_resend' facture.pk %}"
+           class="btn btn--primary w-full justify-center">
+            Renvoyer la facture
+        </a>
+        {% endif %}
         <a href="{% url 'dashboard:facture_list' %}"
            class="btn btn--ghost w-full justify-center">
             ← Retour aux factures

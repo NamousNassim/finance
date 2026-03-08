@@ -82,6 +82,7 @@ class ClientListView(LoginRequiredMixin, ListView):
         qs = super().get_queryset()
         q      = self.request.GET.get('q', '').strip()
         statut = self.request.GET.get('statut', '')
+        no_invoice = self.request.GET.get('no_invoice') == '1'
         if q:
             qs = qs.filter(
                 Q(nom__icontains=q) | Q(prenom__icontains=q) |
@@ -89,6 +90,8 @@ class ClientListView(LoginRequiredMixin, ListView):
             )
         if statut:
             qs = qs.filter(statut=statut)
+        if no_invoice:
+            qs = qs.annotate(facture_count=Count('factures')).filter(facture_count=0)
         return qs
 
     def get_context_data(self, **kwargs):
@@ -96,6 +99,7 @@ class ClientListView(LoginRequiredMixin, ListView):
         ctx['statuts']         = ClientStatut.choices
         ctx['current_q']       = self.request.GET.get('q', '')
         ctx['current_statut']  = self.request.GET.get('statut', '')
+        ctx['current_no_invoice'] = self.request.GET.get('no_invoice', '') == '1'
         return ctx
 
 
@@ -233,6 +237,9 @@ class FactureListView(LoginRequiredMixin, ListView):
         qs     = super().get_queryset().select_related('client')
         statut = self.request.GET.get('statut', '')
         q      = self.request.GET.get('q', '').strip()
+        date_from = self.request.GET.get('date_from', '')
+        date_to   = self.request.GET.get('date_to', '')
+        client_id = self.request.GET.get('client', '')
         if statut:
             qs = qs.filter(statut=statut)
         if q:
@@ -240,6 +247,12 @@ class FactureListView(LoginRequiredMixin, ListView):
                 Q(numero__icontains=q) | Q(objet__icontains=q) |
                 Q(client__nom__icontains=q) | Q(client__societe__icontains=q)
             )
+        if date_from:
+            qs = qs.filter(date_emission__gte=date_from)
+        if date_to:
+            qs = qs.filter(date_emission__lte=date_to)
+        if client_id:
+            qs = qs.filter(client_id=client_id)
         return qs
 
     def get_context_data(self, **kwargs):
@@ -247,6 +260,10 @@ class FactureListView(LoginRequiredMixin, ListView):
         ctx['statuts']        = FactureStatut.choices
         ctx['current_statut'] = self.request.GET.get('statut', '')
         ctx['current_q']      = self.request.GET.get('q', '')
+        ctx['current_date_from'] = self.request.GET.get('date_from', '')
+        ctx['current_date_to']   = self.request.GET.get('date_to', '')
+        ctx['current_client'] = self.request.GET.get('client', '')
+        ctx['clients_filter'] = Client.objects.order_by('societe', 'nom')
         agg = Facture.objects.aggregate(
             encours=Sum('montant_ht',
                 filter=Q(statut__in=[FactureStatut.ENVOYEE, FactureStatut.EN_RETARD])),
@@ -281,15 +298,18 @@ def facture_create(request):
             formset.instance = facture
             formset.save()
             facture.recompute_totals(save=True)
-            # Envoi immédiat de la facture par email si l'adresse client existe
-            success, err = send_invoice_email(
-                facture,
-                admin_email=getattr(settings, "INVOICE_ADMIN_EMAIL", None),
-            )
-            if success:
-                messages.success(request, f'Facture {facture.numero} créée et envoyée à {facture.client.email}.')
+            # Envoi seulement si statut est ENVOYEE et email client présent
+            if facture.statut == FactureStatut.ENVOYEE and facture.client.email:
+                success, err = send_invoice_email(
+                    facture,
+                    admin_email=getattr(settings, "INVOICE_ADMIN_EMAIL", None),
+                )
+                if success:
+                    messages.success(request, f'Facture {facture.numero} créée et envoyée à {facture.client.email}.')
+                else:
+                    messages.warning(request, f'Facture {facture.numero} créée, mais envoi email échoué ({err or "non précisé"}).')
             else:
-                messages.warning(request, f'Facture {facture.numero} créée, mais envoi email échoué ({err or "non précisé"}).')
+                messages.success(request, f'Facture {facture.numero} créée (non envoyée : statut {facture.get_statut_display()}).')
             return redirect('dashboard:facture_list')
         else:
             # Debug minimal : log les erreurs côté serveur
@@ -348,6 +368,27 @@ def facture_pdf(request, pk):
     filename = f"facture-{facture.numero}.pdf"
     response["Content-Disposition"] = f'inline; filename="{filename}"'
     return response
+
+
+@login_required
+def facture_resend(request, pk):
+    facture = get_object_or_404(Facture.objects.select_related('client'), pk=pk)
+    if facture.statut != FactureStatut.ENVOYEE:
+        messages.warning(request, "La facture doit être au statut 'Envoyée' pour être renvoyée.")
+        return redirect('dashboard:facture_detail', pk=pk)
+    if not facture.client.email:
+        messages.error(request, "Aucune adresse email client n'est renseignée.")
+        return redirect('dashboard:facture_detail', pk=pk)
+
+    success, err = send_invoice_email(
+        facture,
+        admin_email=getattr(settings, "INVOICE_ADMIN_EMAIL", None),
+    )
+    if success:
+        messages.success(request, f"Facture {facture.numero} renvoyée à {facture.client.email}.")
+    else:
+        messages.error(request, f"Échec d'envoi : {err or 'non précisé'}.")
+    return redirect('dashboard:facture_detail', pk=pk)
 
 
 # ——— Notifications / Historique envois ———

@@ -133,6 +133,9 @@ class LigneFactureForm(StyledFormMixin, forms.ModelForm):
         if not self.initial.get('item_type'):
             self.initial['item_type'] = 'NORMAL'
         self.fields['item_type'].initial = self.initial.get('item_type', 'NORMAL')
+        # Quantité par défaut = 1
+        if not self.initial.get('quantite'):
+            self.fields['quantite'].initial = 1
 
     class Meta:
         model = LigneFacture
@@ -152,7 +155,7 @@ LigneFactureFormSet = forms.inlineformset_factory(
     Facture,
     LigneFacture,
     form=LigneFactureForm,
-    extra=3,
+    extra=1,
     can_delete=True,
     min_num=0,
 )
