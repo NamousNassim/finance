@@ -1,10 +1,18 @@
 Options -Indexes
+
 PassengerEnabled on
-# Root of the Django project (contains passenger_wsgi.py)
-PassengerAppRoot /home/mccgcom/systemeFacturation
-# WSGI entry file
+PassengerBaseURI /
+PassengerAppType wsgi
+PassengerAppRoot /home/mccgcom/public_html/facturation.mc-cg2.com/systemeFacturation
 PassengerStartupFile passenger_wsgi.py
-# Virtualenv interpreter path from cPanel Python App details
-PassengerPython /home/mccgcom/virtualenv/systemeFacturation/3.12/bin/python3.12
-# Log file location (optional)
+PassengerPython /home/mccgcom/virtualenv/public_html/facturation.mc-cg2.com/systemeFacturation/3.12/bin/python3.12
 PassengerLogFile /home/mccgcom/logs/passenger.log
+SetEnv DJANGO_SETTINGS_MODULE config.settings
+
+# Let Passenger handle everything unless a real file/dir exists
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ - [L]
+</IfModule>
