@@ -1,3 +1,7 @@
+import base64
+from decimal import Decimal, ROUND_HALF_UP
+from types import SimpleNamespace
+
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -6,7 +10,7 @@ from django.db.models import Q, Sum, Count
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse_lazy
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.template.loader import render_to_string
 from django.views.generic import ListView, CreateView, UpdateView
 from django.utils import timezone
@@ -27,6 +31,69 @@ from accounts.models import UserRole
 
 def _can_manage_deletion(user):
     return user.is_superuser or getattr(user, "role", "") in [UserRole.ADMIN, UserRole.RECOVEREMENT]
+
+
+def _quantize(value: Decimal) -> Decimal:
+    """Arrondit au centime avec HALF_UP pour rester cohérent avec les totaux PDF."""
+    return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def _build_preview_pdf(form, formset):
+    """
+    Génère un PDF en mémoire à partir des données du formulaire sans rien persister.
+    Retourne la base64 à injecter dans une iframe data:application/pdf.
+    """
+    try:
+        from xhtml2pdf import pisa
+    except Exception:
+        return None
+
+    facture = form.save(commit=False)
+    facture.numero = facture.numero or "PRÉVISUALISATION"
+    facture.subtotal_ht = Decimal('0.00')
+
+    lignes_normales = []
+    lignes_debours = []
+
+    for lf in formset:
+        data = getattr(lf, "cleaned_data", {}) or {}
+        if not data or data.get("DELETE"):
+            continue
+        desc = data.get("description") or ""
+        qty = Decimal(str(data.get("quantite") or 0))
+        pu = Decimal(str(data.get("prix_unitaire") or 0))
+        item_type = data.get("item_type") or "NORMAL"
+        total_ht = _quantize(qty * pu)
+        ligne_obj = SimpleNamespace(
+            description=desc,
+            quantite=qty,
+            prix_unitaire=pu,
+            total_ht=total_ht,
+        )
+        if item_type == "DEBOURS":
+            lignes_debours.append(ligne_obj)
+        else:
+            lignes_normales.append(ligne_obj)
+        facture.subtotal_ht += total_ht
+
+    facture.montant_ht = facture.subtotal_ht
+    facture.tva_amount = _quantize(facture.subtotal_ht * (facture.tva_rate / Decimal('100')))
+    facture.total_ttc = _quantize(facture.subtotal_ht + facture.tva_amount)
+
+    context = {
+        "facture": facture,
+        "client": facture.client,
+        "lignes": lignes_normales,
+        "debours": lignes_debours,
+        "today": timezone.now().date(),
+    }
+
+    html = render_to_string("invoices/invoice_pdf.html", context)
+    result = BytesIO()
+    pdf = pisa.CreatePDF(src=html, dest=result, encoding="utf-8")
+    if pdf.err:
+        return None
+    return base64.b64encode(result.getvalue()).decode("ascii")
 
 
 # ── DASHBOARD ──────────────────────────────────────────────────────────────────
@@ -296,35 +363,64 @@ def facture_detail(request, pk):
 
 @login_required
 def facture_create(request):
+    action  = request.POST.get("action")
     form    = FactureForm(request.POST or None)
     formset = LigneFactureFormSet(request.POST or None)
+    preview_pdf = None
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
     if request.method == 'POST':
         if form.is_valid() and formset.is_valid():
-            facture = form.save(commit=False)
-            facture.created_by = request.user
-            facture.save()
-            formset.instance = facture
-            formset.save()
-            facture.recompute_totals(save=True)
-            # Envoi seulement si statut est ENVOYEE et email client présent
-            if facture.statut == FactureStatut.ENVOYEE and facture.client.email:
-                success, err = send_invoice_email(
-                    facture,
-                    admin_email=getattr(settings, "INVOICE_ADMIN_EMAIL", None),
-                )
-                if success:
-                    messages.success(request, f'Facture {facture.numero} créée et envoyée à {facture.client.email}.')
+            if is_ajax and action == "preview":
+                preview_pdf = _build_preview_pdf(form, formset)
+                if not preview_pdf:
+                    return JsonResponse(
+                        {"success": False, "message": "La prévisualisation PDF n'a pas pu être générée."},
+                        status=500,
+                    )
+                return JsonResponse({"success": True, "pdf": preview_pdf})
+
+            if action == "confirm":
+                facture = form.save(commit=False)
+                facture.created_by = request.user
+                facture.save()
+                formset.instance = facture
+                formset.save()
+                facture.recompute_totals(save=True)
+                # Envoi seulement si statut est ENVOYEE et email client présent
+                if facture.statut == FactureStatut.ENVOYEE and facture.client.email:
+                    success, err = send_invoice_email(
+                        facture,
+                        admin_email=getattr(settings, "INVOICE_ADMIN_EMAIL", None),
+                    )
+                    if success:
+                        messages.success(request, f'Facture {facture.numero} créée et envoyée à {facture.client.email}.')
+                    else:
+                        messages.warning(request, f'Facture {facture.numero} créée, mais envoi email échoué ({err or "non précisé"}).')
                 else:
-                    messages.warning(request, f'Facture {facture.numero} créée, mais envoi email échoué ({err or "non précisé"}).')
+                    messages.success(request, f'Facture {facture.numero} créée (non envoyée : statut {facture.get_statut_display()}).')
+                return redirect('dashboard:facture_list')
+            elif action == "edit":
+                preview_pdf = None
             else:
-                messages.success(request, f'Facture {facture.numero} créée (non envoyée : statut {facture.get_statut_display()}).')
-            return redirect('dashboard:facture_list')
+                preview_pdf = _build_preview_pdf(form, formset)
+                if preview_pdf:
+                    messages.info(request, "Vérifiez le PDF de prévisualisation ci-dessous puis confirmez l'envoi.")
+                else:
+                    messages.error(request, "La prévisualisation PDF n'a pas pu être générée.")
         else:
             # Debug minimal : log les erreurs côté serveur
             print("FACTURE CREATE INVALID FORM =>", form.errors.as_json(), formset.errors)
+            if is_ajax and action == "preview":
+                return JsonResponse(
+                    {"success": False, "errors": form.errors, "formset_errors": formset.errors},
+                    status=400,
+                )
     return render(request, 'dashboard/factures/form.html', {
         'form': form, 'lignes_formset': formset,
         'action': 'Nouvelle facture', 'submit_label': 'Créer la facture',
+        'preview_pdf': preview_pdf,
+        'preview_mode': bool(preview_pdf),
     })
 
 

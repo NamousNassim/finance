@@ -265,13 +265,46 @@
             </div>
         </div>
 
+{% if preview_pdf %}
+{% endif %}
+        <!-- Prévisualisation PDF -->
+        <div id="preview-container" class="bg-white rounded-2xl shadow-xl border border-emerald-100 overflow-hidden {% if not preview_pdf %}hidden{% endif %}">
+            <div class="px-6 py-4 border-b border-emerald-100 flex items-center justify-between">
+                <div>
+                    <p class="text-xs uppercase tracking-[0.2em] text-emerald-600 font-semibold">Prévisualisation</p>
+                    <h2 class="text-lg font-semibold text-slate-900">PDF prêt à être envoyé</h2>
+                    <p class="text-sm text-slate-500">Vérifiez les informations avant d'envoyer au client.</p>
+                </div>
+                <div id="preview-loader" class="text-sm text-emerald-700 hidden">Génération du PDF...</div>
+            </div>
+            <div class="p-6 bg-slate-50">
+                <iframe id="preview-frame" src="{% if preview_pdf %}data:application/pdf;base64,{{ preview_pdf }}{% endif %}" class="w-full h-[720px] bg-white border border-slate-200 rounded-xl shadow-inner"></iframe>
+                <p id="preview-status" class="mt-3 text-sm text-slate-500"></p>
+            </div>
+        </div>
         <!-- Actions -->
         <div class="flex flex-col sm:flex-row sm:items-center gap-3 justify-end pt-2 pb-8">
             <a href="{% url 'dashboard:facture_list' %}" class="btn btn--secondary">Annuler</a>
-            <button type="submit" class="btn btn--primary">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a 2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                {{ submit_label }}
-            </button>
+            {% if facture %}
+                <button type="submit" class="btn btn--primary">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    {{ submit_label }}
+                </button>
+            {% else %}
+                <div id="actions-preview" class="{% if preview_mode %}hidden{% endif %}">
+                    <button type="button" data-preview class="btn btn--primary">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93 19.07 19.07"/><path d="M9 9.35a3 3 0 0 0 0 5.3"/></svg>
+                        Prévisualiser le PDF
+                    </button>
+                </div>
+                <div id="actions-confirm" class="flex items-center gap-3 {% if not preview_mode %}hidden{% endif %}">
+                    <button type="button" id="preview-edit" class="btn btn--secondary">Modifier</button>
+                    <button type="submit" name="action" value="confirm" class="btn btn--primary">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-5"/><path d="M21 12a9 9 0 1 1-9-9"/></svg>
+                        Confirmer et envoyer
+                    </button>
+                </div>
+            {% endif %}
         </div>
     </form>
 </div>
@@ -431,6 +464,75 @@
     if (recStart) recStart.addEventListener('change', computeNextGeneration);
     if (recFreq)  recFreq.addEventListener('change', computeNextGeneration);
     computeNextGeneration();
+
+    // Prévisualisation sans rechargement
+    const previewBtn      = document.querySelector('[data-preview]');
+    const previewContainer = document.getElementById('preview-container');
+    const previewFrame    = document.getElementById('preview-frame');
+    const previewStatus   = document.getElementById('preview-status');
+    const previewLoader   = document.getElementById('preview-loader');
+    const actionsPreview  = document.getElementById('actions-preview');
+    const actionsConfirm  = document.getElementById('actions-confirm');
+    const editBtn         = document.getElementById('preview-edit');
+    const formEl          = document.getElementById('facture-form');
+    const csrfToken       = document.querySelector('input[name=csrfmiddlewaretoken]')?.value || '';
+
+    function togglePreview(show) {
+        if (!previewContainer) return;
+        previewContainer.classList.toggle('hidden', !show);
+        actionsPreview?.classList.toggle('hidden', show);
+        actionsConfirm?.classList.toggle('hidden', !show);
+    }
+
+    async function handlePreview() {
+        if (!formEl || !previewContainer || !previewFrame) return;
+        previewStatus && (previewStatus.textContent = '');
+        previewLoader && previewLoader.classList.remove('hidden');
+        const fd = new FormData(formEl);
+        fd.set('action', 'preview');
+        const postUrl = formEl.getAttribute('action') || window.location.pathname;
+        try {
+            const res = await fetch(postUrl, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': csrfToken,
+                },
+                body: fd,
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                const errors = data.errors ? Object.values(data.errors).flat().join(' ') : '';
+                const msg = data.message || errors || 'Impossible de générer la prévisualisation.';
+                previewStatus && (previewStatus.textContent = msg);
+                previewStatus && (previewStatus.className = 'mt-3 text-sm text-rose-600');
+                return;
+            }
+            previewFrame.src = 'data:application/pdf;base64,' + data.pdf;
+            previewStatus && (previewStatus.textContent = 'Aperçu généré. Vérifiez puis confirmez.');
+            previewStatus && (previewStatus.className = 'mt-3 text-sm text-emerald-700');
+            togglePreview(true);
+        } catch (err) {
+            previewStatus && (previewStatus.textContent = 'Erreur réseau pendant la prévisualisation.');
+            previewStatus && (previewStatus.className = 'mt-3 text-sm text-rose-600');
+        } finally {
+            previewLoader && previewLoader.classList.add('hidden');
+        }
+    }
+
+    if (previewBtn) {
+        previewBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            handlePreview();
+        });
+    }
+    if (editBtn) {
+        editBtn.addEventListener('click', function () {
+            if (previewFrame) previewFrame.src = '';
+            togglePreview(false);
+            previewStatus && (previewStatus.textContent = '');
+        });
+    }
 })();
 </script>
 {% endblock %}
