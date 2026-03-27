@@ -105,9 +105,10 @@ body {
 <!-- CLIENT BOX -->
 <div class="client-box">
   <div class="client-lbl">Factur&eacute; &agrave; :</div>
-  <div class="client-name">{{ client.societe|default:client }}</div>
+  <div class="client-name">
+    {{ client.societe|default:client }}{% if client.ice %} - ICE: {{ client.ice }}{% endif %}
+  </div>
   {% if client.adresse %}<div class="client-info">{{ client.adresse }}</div>{% endif %}
-  {% if client.ice %}<div class="client-info">ICE: {{ client.ice }}</div>{% endif %}
 </div>
 
 <!-- LINES TABLE -->
