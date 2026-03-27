@@ -22,6 +22,7 @@ urlpatterns = [
 
     # Factures
     path("factures/",                   views.FactureListView.as_view(), name="facture_list"),
+    path("factures/export/xlsx/",       views.facture_export_xlsx,       name="facture_export_xlsx"),
     path("factures/creer/",             views.facture_create,            name="facture_create"),
     path("factures/<int:pk>/",          views.facture_detail,            name="facture_detail"),
     path("factures/<int:pk>/modifier/", views.facture_update,            name="facture_update"),

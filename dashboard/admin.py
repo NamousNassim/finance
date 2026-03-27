@@ -28,7 +28,7 @@ class ProspectAdmin(admin.ModelAdmin):
 class LigneFactureInline(admin.TabularInline):
     model  = LigneFacture
     extra  = 1
-    fields = ['description', 'quantite', 'prix_unitaire', 'item_type']
+    fields = ['description', 'quantite', 'prix_unitaire', 'hors_taxe', 'item_type']
 
 
 @admin.register(Facture)

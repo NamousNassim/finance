@@ -76,6 +76,7 @@ def _build_preview_pdf(form, formset):
     facture = form.save(commit=False)
     facture.numero = facture.numero or "PRÉVISUALISATION"
     facture.subtotal_ht = Decimal('0.00')
+    taxable_subtotal = Decimal('0.00')
 
     lignes_normales = []
     lignes_debours = []
@@ -88,6 +89,7 @@ def _build_preview_pdf(form, formset):
         qty = Decimal(str(data.get("quantite") or 0))
         pu = Decimal(str(data.get("prix_unitaire") or 0))
         item_type = data.get("item_type") or "NORMAL"
+        hors_taxe = bool(data.get("hors_taxe"))
         total_ht = _quantize(qty * pu)
         ligne_obj = SimpleNamespace(
             description=desc,
@@ -100,9 +102,11 @@ def _build_preview_pdf(form, formset):
         else:
             lignes_normales.append(ligne_obj)
         facture.subtotal_ht += total_ht
+        if not hors_taxe:
+            taxable_subtotal += total_ht
 
     facture.montant_ht = facture.subtotal_ht
-    facture.tva_amount = _quantize(facture.subtotal_ht * (facture.tva_rate / Decimal('100')))
+    facture.tva_amount = _quantize(taxable_subtotal * (facture.tva_rate / Decimal('100')))
     facture.total_ttc = _quantize(facture.subtotal_ht + facture.tva_amount)
 
     context = {
@@ -136,6 +140,30 @@ def _filtered_clients_queryset(request):
         qs = qs.filter(statut=statut)
     if no_invoice:
         qs = qs.annotate(facture_count=Count('factures')).filter(facture_count=0)
+    return qs
+
+
+def _filtered_factures_queryset(request):
+    qs = Facture.objects.select_related('client')
+    statut = request.GET.get('statut', '')
+    q = request.GET.get('q', '').strip()
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    client_id = request.GET.get('client', '')
+
+    if statut:
+        qs = qs.filter(statut=statut)
+    if q:
+        qs = qs.filter(
+            Q(numero__icontains=q) | Q(objet__icontains=q) |
+            Q(client__nom__icontains=q) | Q(client__societe__icontains=q)
+        )
+    if date_from:
+        qs = qs.filter(date_emission__gte=date_from)
+    if date_to:
+        qs = qs.filter(date_emission__lte=date_to)
+    if client_id:
+        qs = qs.filter(client_id=client_id)
     return qs
 
 
@@ -334,6 +362,196 @@ def _build_clients_xlsx(clients):
  xmlns:dcmitype="http://purl.org/dc/dcmitype/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dc:title>Export clients</dc:title>
+  <dc:creator>Codex</dc:creator>
+  <cp:lastModifiedBy>Codex</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:modified>
+</cp:coreProperties>'''
+
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types_xml)
+        archive.writestr("_rels/.rels", root_rels_xml)
+        archive.writestr("docProps/app.xml", app_xml)
+        archive.writestr("docProps/core.xml", core_xml)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        archive.writestr("xl/styles.xml", styles_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return output.getvalue()
+
+
+def _build_factures_xlsx(factures):
+    columns = [
+        ("Numero de facture", 20),
+        ("Client", 26),
+        ("Societe", 24),
+        ("Objet", 32),
+        ("Montant HT", 14),
+        ("TVA", 12),
+        ("Total TTC", 14),
+        ("Statut", 14),
+        ("Type", 18),
+        ("Date emission", 16),
+        ("Date echeance", 16),
+        ("Email client", 28),
+    ]
+    factures = list(factures)
+    last_column = _xlsx_column_name(len(columns))
+    last_row = len(factures) + 1
+
+    rows_xml = [
+        '<row r="1" ht="24" customHeight="1">'
+        + "".join(
+            _xlsx_inline_cell(f"{_xlsx_column_name(index)}1", header, 1)
+            for index, (header, _width) in enumerate(columns, start=1)
+        )
+        + '</row>'
+    ]
+
+    for row_number, facture in enumerate(factures, start=2):
+        client_name = f"{facture.client.nom} {facture.client.prenom}".strip()
+        values = [
+            facture.numero,
+            client_name,
+            facture.client.societe,
+            facture.objet,
+            f"{facture.montant_ht:.2f}",
+            f"{facture.tva_amount:.2f}",
+            f"{facture.total_ttc:.2f}",
+            facture.get_statut_display(),
+            facture.get_type_facture_display(),
+            facture.date_emission.strftime("%d/%m/%Y") if facture.date_emission else "",
+            facture.date_echeance.strftime("%d/%m/%Y") if facture.date_echeance else "",
+            facture.client.email,
+        ]
+        cells = []
+        for column_index, value in enumerate(values, start=1):
+            cell_ref = f"{_xlsx_column_name(column_index)}{row_number}"
+            style_id = 3 if column_index == 4 else 2
+            cells.append(_xlsx_inline_cell(cell_ref, value, style_id))
+        rows_xml.append(f'<row r="{row_number}">{"".join(cells)}</row>')
+
+    cols_xml = "".join(
+        f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+        for index, (_header, width) in enumerate(columns, start=1)
+    )
+
+    sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:{last_column}{last_row}"/>
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+    </sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>{cols_xml}</cols>
+  <sheetData>{"".join(rows_xml)}</sheetData>
+  <autoFilter ref="A1:{last_column}{last_row}"/>
+  <pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
+</worksheet>'''
+
+    styles_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1D4ED8"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFD1D5DB"/></left>
+      <right style="thin"><color rgb="FFD1D5DB"/></right>
+      <top style="thin"><color rgb="FFD1D5DB"/></top>
+      <bottom style="thin"><color rgb="FFD1D5DB"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="4">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+      <alignment horizontal="center" vertical="center"/>
+    </xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">
+      <alignment vertical="top"/>
+    </xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">
+      <alignment vertical="top" wrapText="1"/>
+    </xf>
+  </cellXfs>
+  <cellStyles count="1">
+    <cellStyle name="Normal" xfId="0" builtinId="0"/>
+  </cellStyles>
+</styleSheet>'''
+
+    timestamp = timezone.now().isoformat()
+    workbook_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Factures" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>'''
+    workbook_rels_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>'''
+    root_rels_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>'''
+    content_types_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>'''
+    app_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+ xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Microsoft Excel</Application>
+  <DocSecurity>0</DocSecurity>
+  <ScaleCrop>false</ScaleCrop>
+  <HeadingPairs>
+    <vt:vector size="2" baseType="variant">
+      <vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant>
+      <vt:variant><vt:i4>1</vt:i4></vt:variant>
+    </vt:vector>
+  </HeadingPairs>
+  <TitlesOfParts>
+    <vt:vector size="1" baseType="lpstr">
+      <vt:lpstr>Factures</vt:lpstr>
+    </vt:vector>
+  </TitlesOfParts>
+  <Company></Company>
+  <LinksUpToDate>false</LinksUpToDate>
+  <SharedDoc>false</SharedDoc>
+  <HyperlinksChanged>false</HyperlinksChanged>
+  <AppVersion>16.0300</AppVersion>
+</Properties>'''
+    core_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:dcterms="http://purl.org/dc/terms/"
+ xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>Export factures</dc:title>
   <dc:creator>Codex</dc:creator>
   <cp:lastModifiedBy>Codex</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:created>
@@ -566,26 +784,7 @@ class FactureListView(LoginRequiredMixin, ListView):
     paginate_by         = 20
 
     def get_queryset(self):
-        qs     = super().get_queryset().select_related('client')
-        statut = self.request.GET.get('statut', '')
-        q      = self.request.GET.get('q', '').strip()
-        date_from = self.request.GET.get('date_from', '')
-        date_to   = self.request.GET.get('date_to', '')
-        client_id = self.request.GET.get('client', '')
-        if statut:
-            qs = qs.filter(statut=statut)
-        if q:
-            qs = qs.filter(
-                Q(numero__icontains=q) | Q(objet__icontains=q) |
-                Q(client__nom__icontains=q) | Q(client__societe__icontains=q)
-            )
-        if date_from:
-            qs = qs.filter(date_emission__gte=date_from)
-        if date_to:
-            qs = qs.filter(date_emission__lte=date_to)
-        if client_id:
-            qs = qs.filter(client_id=client_id)
-        return qs
+        return _filtered_factures_queryset(self.request)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -606,6 +805,19 @@ class FactureListView(LoginRequiredMixin, ListView):
         ctx['paye_total']    = agg['paye']    or 0
         ctx['retard_total']  = agg['retard']  or 0
         return ctx
+
+
+@login_required
+def facture_export_xlsx(request):
+    factures = _filtered_factures_queryset(request)
+    workbook = _build_factures_xlsx(factures)
+    response = HttpResponse(
+        workbook,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    filename = f"factures-{timezone.localdate().isoformat()}.xlsx"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @login_required
@@ -671,7 +883,11 @@ def facture_create(request):
             print("FACTURE CREATE INVALID FORM =>", form.errors.as_json(), formset.errors)
             if is_ajax and action == "preview":
                 return JsonResponse(
-                    {"success": False, "errors": form.errors, "formset_errors": formset.errors},
+                    {
+                        "success": False,
+                        "errors": form.errors,
+                        "formset_errors": formset.errors,
+                    },
                     status=400,
                 )
     return render(request, 'dashboard/factures/form.html', {

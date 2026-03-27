@@ -254,16 +254,17 @@
 
             {{ lignes_formset.management_form }}
 
-            <div class="hidden lg:grid grid-cols-[1.6fr_120px_140px_auto] gap-3 px-6 pt-4 pb-2 text-xs uppercase tracking-wide text-slate-400 font-semibold">
+            <div class="hidden lg:grid grid-cols-[1.6fr_120px_140px_130px_auto] gap-3 px-6 pt-4 pb-2 text-xs uppercase tracking-wide text-slate-400 font-semibold">
                 <p>Description</p>
                 <p class="text-right">Qté</p>
                 <p class="text-right">P.U. HT</p>
+                <p class="text-center">Hors taxe</p>
                 <p class="text-right">Total HT</p>
             </div>
 
             <div id="lignes-container" class="divide-y divide-slate-100">
                 {% for lf in lignes_formset %}
-                <div class="ligne-row px-4 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-[1.6fr_120px_140px_auto] gap-3" id="ligne-{{ forloop.counter0 }}">
+                <div class="ligne-row px-4 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-[1.6fr_120px_140px_130px_auto] gap-3" id="ligne-{{ forloop.counter0 }}">
                     {% for hidden in lf.hidden_fields %}{{ hidden }}{% endfor %}
                     <div>
                         {{ lf.description }}
@@ -276,6 +277,12 @@
                     <div>
                         <input type="number" step="0.01" min="0" name="{{ lf.prix_unitaire.html_name }}"
                                value="{{ lf.prix_unitaire.value|default:'' }}" class="form-input ligne-pu text-right" placeholder="0.00">
+                    </div>
+                    <div class="flex items-center lg:justify-center">
+                        <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+                            {{ lf.hors_taxe }}
+                            <span>Hors taxe</span>
+                        </label>
                     </div>
                     <div class="flex items-center justify-end gap-2">
                         <span class="text-money text-sm ligne-total text-slate-700 min-w-[70px] text-right">—</span>
@@ -374,10 +381,12 @@
     const recNext   = document.querySelector('[name$="recurrence_prochaine"]');
     const recActive = document.querySelector('[name$="recurrence_active"]');
 
-    function updateTTC() {
-        const ht  = parseFloat(htInput && htInput.value)  || 0;
-        const tva = parseFloat(tvaInput && tvaInput.value) || 0;
-        const ttc = ht * (1 + tva / 100);
+    function updateTTC(htValue, taxableValue) {
+        const ht  = typeof htValue === 'number' ? htValue : (parseFloat(htInput && htInput.value) || 0);
+        const taxable = typeof taxableValue === 'number' ? taxableValue : ht;
+        const tvaRate = parseFloat(tvaInput && tvaInput.value) || 0;
+        const tvaAmount = taxable * (tvaRate / 100);
+        const ttc = ht + tvaAmount;
         const formatted = ttc ? ttc.toFixed(2) + ' DH' : '—';
         if (ttcEl) ttcEl.textContent = formatted;
         if (ttcSummary) ttcSummary.textContent = formatted;
@@ -391,11 +400,20 @@
 
     function updateLineTotals() {
         let total = 0;
+        let taxableTotal = 0;
         document.querySelectorAll('.ligne-row').forEach(function (row) {
+            const deleteInput = row.querySelector('input[name$="-DELETE"]');
+            if (deleteInput && deleteInput.checked) {
+                const deletedTotal = row.querySelector('.ligne-total');
+                if (deletedTotal) deletedTotal.textContent = '-';
+                return;
+            }
             const qty = parseFloat(row.querySelector('.ligne-qty')?.value) || 0;
             const pu  = parseFloat(row.querySelector('.ligne-pu')?.value)  || 0;
+            const horsTaxe = row.querySelector('.ligne-hors-taxe')?.checked;
             const amt = qty * pu;
             total += amt;
+            if (!horsTaxe) taxableTotal += amt;
             const el = row.querySelector('.ligne-total');
             if (el) el.textContent = amt ? amt.toFixed(2) + ' DH' : '—';
         });
@@ -406,13 +424,19 @@
         if (subFooter) subFooter.textContent = formatted;
         if (htInput) {
             htInput.value = total ? total.toFixed(2) : '';
-            updateTTC();
+            updateTTC(total, taxableTotal);
         }
     }
 
     document.addEventListener('input', function (e) {
         if (e.target.classList.contains('ligne-qty') ||
-            e.target.classList.contains('ligne-pu')) {
+            e.target.classList.contains('ligne-pu') ||
+            e.target.classList.contains('ligne-hors-taxe')) {
+            updateLineTotals();
+        }
+    });
+    document.addEventListener('change', function (e) {
+        if (e.target.classList.contains('ligne-hors-taxe')) {
             updateLineTotals();
         }
     });
@@ -423,13 +447,19 @@
         addBtn.addEventListener('click', function () {
             const count = parseInt(totalForms.value, 10);
             const prefix = totalForms.name.replace('-TOTAL_FORMS', '');
-            const html = '<div class="ligne-row px-4 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-[1.6fr_120px_140px_auto] gap-3">' +
+            const html = '<div class="ligne-row px-4 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-[1.6fr_120px_140px_130px_auto] gap-3">' +
                 '<div><input type="text" name="' + prefix + '-' + count + '-description"' +
                 ' class="form-input" placeholder="Description de la prestation"></div>' +
                 '<div><input type="number" step="0.01" min="0" name="' + prefix + '-' + count + '-quantite"' +
                 ' value="1" class="form-input ligne-qty text-right" placeholder="1"></div>' +
                 '<div><input type="number" step="0.01" min="0" name="' + prefix + '-' + count + '-prix_unitaire"' +
                 ' class="form-input ligne-pu text-right" placeholder="0.00"></div>' +
+                '<div class="flex items-center lg:justify-center">' +
+                '<label class="inline-flex items-center gap-2 text-sm text-slate-600">' +
+                '<input type="checkbox" name="' + prefix + '-' + count + '-hors_taxe" class="ligne-hors-taxe rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">' +
+                '<span>Hors taxe</span>' +
+                '</label>' +
+                '</div>' +
                 '<div class="flex items-center justify-end gap-2">' +
                 '<span class="text-money text-sm ligne-total text-slate-700 min-w-[70px] text-right">—</span>' +
                 '<input type="hidden" name="' + prefix + '-' + count + '-item_type" value="NORMAL">' +
@@ -442,7 +472,7 @@
         });
     }
 
-    document.querySelectorAll('.ligne-row input[type=checkbox]').forEach(function (cb) {
+    document.querySelectorAll('.ligne-row input[name$="-DELETE"]').forEach(function (cb) {
         cb.style.display = 'none';
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -552,6 +582,8 @@
             const data = await res.json();
             if (!res.ok || !data.success) {
                 const errors = data.errors ? Object.values(data.errors).flat().join(' ') : '';
+                const formsetErrors = data.formset_errors ? data.formset_errors.flatMap(Object.values).flat().join(' ') : '';
+                const nonFormErrors = data.formset_non_form_errors ? data.formset_non_form_errors.join(' ') : '';
                 const msg = data.message || errors || 'Impossible de générer la prévisualisation.';
                 previewStatus && (previewStatus.textContent = msg);
                 previewStatus && (previewStatus.className = 'mt-3 text-sm text-rose-600');

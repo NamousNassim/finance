@@ -146,15 +146,17 @@ class LigneFactureForm(StyledFormMixin, forms.ModelForm):
 
     class Meta:
         model = LigneFacture
-        fields = ['description', 'quantite', 'prix_unitaire', 'item_type']
+        fields = ['description', 'quantite', 'prix_unitaire', 'hors_taxe', 'item_type']
         labels = {
             'description': 'Description',
             'quantite': 'Qté',
             'prix_unitaire': 'P.U. HT (DH)',
+            'hors_taxe': 'Hors taxe',
             'item_type': 'Type de ligne',
         }
         widgets = {
             'item_type': forms.HiddenInput(),
+            'hors_taxe': forms.CheckboxInput(attrs={'class': 'ligne-hors-taxe rounded border-slate-300 text-indigo-600 focus:ring-indigo-500'}),
         }
 
 

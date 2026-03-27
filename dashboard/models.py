@@ -233,7 +233,8 @@ class Facture(models.Model):
     def recompute_totals(self, save: bool = False):
         lines = list(self.lignes.all())
         subtotal = sum((l.total_ht for l in lines), Decimal('0.00'))
-        tva = self._quantize(subtotal * (self.tva_rate / Decimal('100')))
+        taxable_subtotal = sum((l.taxable_ht for l in lines), Decimal('0.00'))
+        tva = self._quantize(taxable_subtotal * (self.tva_rate / Decimal('100')))
         total = self._quantize(subtotal + tva)
         self.subtotal_ht = self._quantize(subtotal)
         self.montant_ht = self.subtotal_ht  # backward compat
@@ -283,6 +284,7 @@ class LigneFacture(models.Model):
         default='NORMAL',
         verbose_name='Type de ligne'
     )
+    hors_taxe     = models.BooleanField(default=False, verbose_name='Hors taxe')
 
     class Meta:
         verbose_name = 'Ligne de facture'
@@ -291,6 +293,12 @@ class LigneFacture(models.Model):
     @property
     def total_ht(self):
         return (self.quantite * self.prix_unitaire).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @property
+    def taxable_ht(self):
+        if self.hors_taxe:
+            return Decimal('0.00')
+        return self.total_ht
 
     def __str__(self):
         return f"{self.description} ×{self.quantite}"

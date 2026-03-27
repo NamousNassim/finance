@@ -30,8 +30,10 @@ def compute_invoice_totals(facture):
     Recalcule les totaux d'une facture à partir de ses lignes.
     Met à jour subtotal_ht, tva_amount et total_ttc en mémoire.
     """
-    subtotal = sum((l.total_ht for l in facture.lignes.all()), Decimal('0.00'))
-    tva = quantize(subtotal * (facture.tva_rate / Decimal('100')))
+    lines = list(facture.lignes.all())
+    subtotal = sum((l.total_ht for l in lines), Decimal('0.00'))
+    taxable_subtotal = sum((l.taxable_ht for l in lines), Decimal('0.00'))
+    tva = quantize(taxable_subtotal * (facture.tva_rate / Decimal('100')))
     total = quantize(subtotal + tva)
     facture.subtotal_ht = quantize(subtotal)
     facture.montant_ht = facture.subtotal_ht
@@ -122,6 +124,7 @@ def generate_invoice_from_template(template: Facture, generation_date: date | No
             quantite=lf.quantite,
             prix_unitaire=lf.prix_unitaire,
             item_type=lf.item_type,
+            hors_taxe=lf.hors_taxe,
         )
         for lf in template.lignes.all()
     ]
