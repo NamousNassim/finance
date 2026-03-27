@@ -78,6 +78,10 @@
                     <p class="info-value text-base font-mono">{{ client.siret|default:"—" }}</p>
                 </div>
                 <div class="info-item">
+                    <p class="info-label">ICE</p>
+                    <p class="info-value text-base font-mono">{{ client.ice|default:"-" }}</p>
+                </div>
+                <div class="info-item">
                     <p class="info-label">Client depuis</p>
                     <p class="info-value text-base">{{ client.created_at|date:"d/m/Y" }}</p>
                 </div>

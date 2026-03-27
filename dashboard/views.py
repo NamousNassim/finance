@@ -1,6 +1,8 @@
 import base64
 from decimal import Decimal, ROUND_HALF_UP
 from types import SimpleNamespace
+from xml.sax.saxutils import escape
+import zipfile
 
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
@@ -119,6 +121,238 @@ def _build_preview_pdf(form, formset):
     return base64.b64encode(result.getvalue()).decode("ascii")
 
 
+def _filtered_clients_queryset(request):
+    qs = Client.objects.all()
+    q = request.GET.get('q', '').strip()
+    statut = request.GET.get('statut', '')
+    no_invoice = request.GET.get('no_invoice') == '1'
+
+    if q:
+        qs = qs.filter(
+            Q(nom__icontains=q) | Q(prenom__icontains=q) |
+            Q(societe__icontains=q) | Q(email__icontains=q)
+        )
+    if statut:
+        qs = qs.filter(statut=statut)
+    if no_invoice:
+        qs = qs.annotate(facture_count=Count('factures')).filter(facture_count=0)
+    return qs
+
+
+def _xlsx_column_name(index):
+    name = ""
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _xlsx_text(value):
+    if value is None:
+        return ""
+    text = str(value)
+    return "".join(
+        ch for ch in text
+        if ch in "\t\n\r" or ord(ch) >= 32
+    )
+
+
+def _xlsx_inline_cell(cell_ref, value, style_id):
+    text = escape(_xlsx_text(value))
+    return (
+        f'<c r="{cell_ref}" s="{style_id}" t="inlineStr">'
+        f'<is><t xml:space="preserve">{text}</t></is>'
+        f'</c>'
+    )
+
+
+def _build_clients_xlsx(clients):
+    columns = [
+        ("Nom", 18),
+        ("Prenom", 18),
+        ("Societe", 24),
+        ("Email", 28),
+        ("Telephone", 18),
+        ("RC", 16),
+        ("ICE", 18),
+        ("Statut", 14),
+        ("Adresse", 34),
+        ("Notes", 34),
+        ("Cree le", 16),
+    ]
+    clients = list(clients)
+    last_column = _xlsx_column_name(len(columns))
+    last_row = len(clients) + 1
+
+    rows_xml = [
+        '<row r="1" ht="24" customHeight="1">'
+        + "".join(
+            _xlsx_inline_cell(f"{_xlsx_column_name(index)}1", header, 1)
+            for index, (header, _width) in enumerate(columns, start=1)
+        )
+        + '</row>'
+    ]
+
+    for row_number, client in enumerate(clients, start=2):
+        values = [
+            client.nom,
+            client.prenom,
+            client.societe,
+            client.email,
+            client.telephone,
+            client.siret,
+            client.ice,
+            client.get_statut_display(),
+            client.adresse,
+            client.notes,
+            client.created_at.strftime("%d/%m/%Y"),
+        ]
+        cells = []
+        for column_index, value in enumerate(values, start=1):
+            cell_ref = f"{_xlsx_column_name(column_index)}{row_number}"
+            style_id = 3 if column_index in (9, 10) else 2
+            cells.append(_xlsx_inline_cell(cell_ref, value, style_id))
+        rows_xml.append(f'<row r="{row_number}">{"".join(cells)}</row>')
+
+    cols_xml = "".join(
+        f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+        for index, (_header, width) in enumerate(columns, start=1)
+    )
+
+    sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:{last_column}{last_row}"/>
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+    </sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>{cols_xml}</cols>
+  <sheetData>{"".join(rows_xml)}</sheetData>
+  <autoFilter ref="A1:{last_column}{last_row}"/>
+  <pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
+</worksheet>'''
+
+    styles_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1D4ED8"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFD1D5DB"/></left>
+      <right style="thin"><color rgb="FFD1D5DB"/></right>
+      <top style="thin"><color rgb="FFD1D5DB"/></top>
+      <bottom style="thin"><color rgb="FFD1D5DB"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="4">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+      <alignment horizontal="center" vertical="center"/>
+    </xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">
+      <alignment vertical="top"/>
+    </xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">
+      <alignment vertical="top" wrapText="1"/>
+    </xf>
+  </cellXfs>
+  <cellStyles count="1">
+    <cellStyle name="Normal" xfId="0" builtinId="0"/>
+  </cellStyles>
+</styleSheet>'''
+
+    timestamp = timezone.now().isoformat()
+    workbook_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Clients" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>'''
+    workbook_rels_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>'''
+    root_rels_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>'''
+    content_types_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>'''
+    app_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+ xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Microsoft Excel</Application>
+  <DocSecurity>0</DocSecurity>
+  <ScaleCrop>false</ScaleCrop>
+  <HeadingPairs>
+    <vt:vector size="2" baseType="variant">
+      <vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant>
+      <vt:variant><vt:i4>1</vt:i4></vt:variant>
+    </vt:vector>
+  </HeadingPairs>
+  <TitlesOfParts>
+    <vt:vector size="1" baseType="lpstr">
+      <vt:lpstr>Clients</vt:lpstr>
+    </vt:vector>
+  </TitlesOfParts>
+  <Company></Company>
+  <LinksUpToDate>false</LinksUpToDate>
+  <SharedDoc>false</SharedDoc>
+  <HyperlinksChanged>false</HyperlinksChanged>
+  <AppVersion>16.0300</AppVersion>
+</Properties>'''
+    core_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:dcterms="http://purl.org/dc/terms/"
+ xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>Export clients</dc:title>
+  <dc:creator>Codex</dc:creator>
+  <cp:lastModifiedBy>Codex</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:modified>
+</cp:coreProperties>'''
+
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types_xml)
+        archive.writestr("_rels/.rels", root_rels_xml)
+        archive.writestr("docProps/app.xml", app_xml)
+        archive.writestr("docProps/core.xml", core_xml)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        archive.writestr("xl/styles.xml", styles_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return output.getvalue()
+
+
 # ── DASHBOARD ──────────────────────────────────────────────────────────────────
 
 @login_required
@@ -177,20 +411,7 @@ class ClientListView(LoginRequiredMixin, ListView):
     paginate_by         = 20
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        q      = self.request.GET.get('q', '').strip()
-        statut = self.request.GET.get('statut', '')
-        no_invoice = self.request.GET.get('no_invoice') == '1'
-        if q:
-            qs = qs.filter(
-                Q(nom__icontains=q) | Q(prenom__icontains=q) |
-                Q(societe__icontains=q) | Q(email__icontains=q)
-            )
-        if statut:
-            qs = qs.filter(statut=statut)
-        if no_invoice:
-            qs = qs.annotate(facture_count=Count('factures')).filter(facture_count=0)
-        return qs
+        return _filtered_clients_queryset(self.request)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -208,6 +429,19 @@ def client_detail(request, pk):
     return render(request, 'dashboard/clients/detail.html', {
         'client': client, 'factures': factures
     })
+
+
+@login_required
+def client_export_xlsx(request):
+    clients = _filtered_clients_queryset(request)
+    workbook = _build_clients_xlsx(clients)
+    response = HttpResponse(
+        workbook,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    filename = f"clients-{timezone.localdate().isoformat()}.xlsx"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 class ClientCreateView(LoginRequiredMixin, CreateView):

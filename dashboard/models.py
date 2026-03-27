@@ -22,6 +22,7 @@ class Client(models.Model):
     societe    = models.CharField(max_length=200, blank=True, verbose_name='Société')
     adresse    = models.TextField(blank=True, verbose_name='Adresse')
     siret      = models.CharField(max_length=20, blank=True, verbose_name='RC')
+    ice        = models.CharField(max_length=30, blank=True, null=True, verbose_name='ICE')
     statut     = models.CharField(
         max_length=10, choices=ClientStatut.choices, default=ClientStatut.ACTIF,
         verbose_name='Statut'
@@ -312,4 +313,3 @@ class FactureEmailLog(models.Model):
     def __str__(self):
         status = "OK" if self.success else "KO"
         return f"{self.facture.numero} → {self.to_email} ({status})"
-

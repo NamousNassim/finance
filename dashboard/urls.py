@@ -9,6 +9,7 @@ urlpatterns = [
 
     # Clients
     path("clients/",                  views.ClientListView.as_view(),  name="client_list"),
+    path("clients/export/xlsx/",      views.client_export_xlsx,        name="client_export_xlsx"),
     path("clients/ajouter/",          views.ClientCreateView.as_view(), name="client_create"),
     path("clients/<int:pk>/",         views.client_detail,             name="client_detail"),
     path("clients/<int:pk>/modifier/",views.ClientUpdateView.as_view(), name="client_update"),

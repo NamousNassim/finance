@@ -4,12 +4,12 @@ from .models import Client, Prospect, Facture, LigneFacture
 
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
-    list_display  = ['nom', 'prenom', 'societe', 'email', 'telephone', 'statut', 'created_at']
+    list_display  = ['nom', 'prenom', 'societe', 'email', 'telephone', 'ice', 'statut', 'created_at']
     list_filter   = ['statut', 'created_at']
-    search_fields = ['nom', 'prenom', 'email', 'societe', 'siret']
+    search_fields = ['nom', 'prenom', 'email', 'societe', 'siret', 'ice']
     readonly_fields = ['created_at', 'updated_at']
     fieldsets = (
-        ('Identité', {'fields': ('nom', 'prenom', 'societe', 'siret')}),
+        ('Identite', {'fields': ('nom', 'prenom', 'societe', 'siret', 'ice')}),
         ('Contact',  {'fields': ('email', 'telephone', 'adresse')}),
         ('Gestion',  {'fields': ('statut', 'notes', 'created_by')}),
         ('Dates',    {'fields': ('created_at', 'updated_at'), 'classes': ('collapse',)}),
@@ -50,7 +50,7 @@ class FactureAdmin(admin.ModelAdmin):
         ('Dates', {
             'fields': ('date_emission', 'date_echeance', 'created_at', 'updated_at')
         }),
-        ('Récurrence', {
+        ('Recurrence', {
             'fields': (
                 'type_facture', 'recurrence_frequence', 'recurrence_debut',
                 'recurrence_fin', 'recurrence_prochaine', 'recurrence_active',
@@ -62,4 +62,3 @@ class FactureAdmin(admin.ModelAdmin):
             'fields': ('created_by',),
         }),
     )
-

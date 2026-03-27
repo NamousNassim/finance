@@ -60,6 +60,13 @@
                     <p class="form-error">{{ form.siret.errors|striptags }}</p>
                     {% endif %}
                 </div>
+                <div>
+                    <label class="form-label">{{ form.ice.label }}</label>
+                    {{ form.ice }}
+                    {% if form.ice.errors %}
+                    <p class="form-error">{{ form.ice.errors|striptags }}</p>
+                    {% endif %}
+                </div>
 
                 <div>
                     <label class="form-label">{{ form.statut.label }}</label>

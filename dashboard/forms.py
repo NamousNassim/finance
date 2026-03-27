@@ -32,7 +32,7 @@ class ClientForm(StyledFormMixin, forms.ModelForm):
         model = Client
         fields = [
             'nom', 'prenom', 'email', 'telephone',
-            'societe', 'adresse', 'siret', 'statut', 'notes',
+            'societe', 'adresse', 'siret', 'ice', 'statut', 'notes',
         ]
         widgets = {
             'adresse': forms.Textarea(attrs={'rows': 2}),
@@ -46,6 +46,7 @@ class ClientForm(StyledFormMixin, forms.ModelForm):
             'societe': 'Société',
             'adresse': 'Adresse',
             'siret': 'RC',
+            'ice': 'ICE',
             'statut': 'Statut',
             'notes': 'Notes internes',
         }
